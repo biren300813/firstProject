@@ -273,11 +273,18 @@ public class ClaimTransactionWiringConfig {
 
     @Bean
     public RuntimeWiringConfigurer dynamicFilterWiring() {
-        return wiringBuilder -> wiringBuilder
-            .type(TypeRuntimeWiring.newTypeWiring("ClaimTransaction")
-                .dataFetcher("claimDiagnosisCode", dynamicFilterFetcher(ClaimDiagnosisCode.class))
-                .dataFetcher("adjRequest", dynamicFilterFetcher(AdjRequest.class))
-            );
+        return wiringBuilder -> {
+            DynamicFilterRegistry.FILTERABLE_FIELDS.forEach((typeName, fieldMap) -> {
+                wiringBuilder.type(typeName, typeWiring -> {
+                    for (Map.Entry<String, Class<?>> entry : fieldMap.entrySet()) {
+                        String fieldName = entry.getKey();
+                        Class<?> targetClass = entry.getValue();
+                        typeWiring = typeWiring.dataFetcher(fieldName, dynamicFilterFetcher(targetClass));
+                    }
+                    return typeWiring;
+                });
+            });
+        };
     }
 
     public <T> DataFetcher<List<T>> dynamicFilterFetcher(Class<T> targetType) {
