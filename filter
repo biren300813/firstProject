@@ -1,0 +1,250 @@
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+public class FilterEngine<T> {
+    private final Class<T> clazz;
+    private final OperatorResolver operatorResolver = new OperatorResolver();
+
+    public FilterEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public List<T> filter(List<T> data, Object whereClause) {
+        if (whereClause == null) return data;
+        Predicate<T> predicate = buildPredicate(whereClause);
+        return data.stream().filter(predicate).collect(Collectors.toList());
+    }
+
+    private Predicate<T> buildPredicate(Object whereClause) {
+        if (whereClause instanceof Map) {
+            return buildPredicateFromMap((Map<String, Object>) whereClause);
+        } else {
+            return buildPredicateFromObject(whereClause);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Predicate<T> buildPredicateFromMap(Map<String, Object> filterMap) {
+        List<Predicate<T>> andPredicates = new ArrayList<>();
+        List<Predicate<T>> orPredicates = new ArrayList<>();
+
+        for (Map.Entry<String, Object> entry : filterMap.entrySet()) {
+            String field = entry.getKey();
+            Object value = entry.getValue();
+
+            if ("and".equals(field) || "or".equals(field)) {
+                if (value instanceof List) {
+                    List<Map<String, Object>> subClauses = (List<Map<String, Object>>) value;
+                    List<Predicate<T>> subPredicates = subClauses.stream()
+                        .map(this::buildPredicateFromMap)
+                        .collect(Collectors.toList());
+
+                    if ("and".equals(field)) andPredicates.addAll(subPredicates);
+                    else orPredicates.addAll(subPredicates);
+                }
+            } else {
+                andPredicates.add(createFieldPredicate(field, value));
+            }
+        }
+
+        Predicate<T> andPredicate = andPredicates.stream().reduce(x -> true, Predicate::and);
+        Predicate<T> orPredicate = orPredicates.stream().reduce(x -> false, Predicate::or);
+        return orPredicates.isEmpty() ? andPredicate : andPredicate.and(orPredicate);
+    }
+
+    private Predicate<T> buildPredicateFromObject(Object clause) {
+        List<Predicate<T>> andPredicates = new ArrayList<>();
+        List<Predicate<T>> orPredicates = new ArrayList<>();
+
+        try {
+            for (Field field : clause.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object fieldValue = field.get(clause);
+
+                if ("and".equals(field.getName()) && fieldValue instanceof List) {
+                    ((List<?>) fieldValue).forEach(subClause -> andPredicates.add(buildPredicate(subClause)));
+                } else if ("or".equals(field.getName()) && fieldValue instanceof List) {
+                    ((List<?>) fieldValue).forEach(subClause -> orPredicates.add(buildPredicate(subClause)));
+                } else if (fieldValue != null &&
+                           field.getName().equals(deCapitalize(field.getType().getSimpleName().replace("OperatorClause", "")))) {
+                    andPredicates.add(createFieldPredicate(field.getName(), fieldValue));
+                }
+            }
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+            return x -> false;
+        }
+
+        Predicate<T> andPredicate = andPredicates.stream().reduce(x -> true, Predicate::and);
+        Predicate<T> orPredicate = orPredicates.stream().reduce(x -> false, Predicate::or);
+        return orPredicates.isEmpty() ? andPredicate : andPredicate.and(orPredicate);
+    }
+
+    private Predicate<T> createFieldPredicate(String fieldName, Object operatorClause) {
+        return record -> {
+            try {
+                Field targetField = getFieldRecursive(clazz, fieldName);
+                if (targetField == null) return false;
+
+                targetField.setAccessible(true);
+                Object fieldValue = targetField.get(record);
+
+                if (operatorClause != null) {
+                    String typeName = operatorClause.getClass().getSimpleName();
+
+                    if (typeName.contains("StringOperatorClause")) {
+                        return applyStringOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("DateOperatorClause")) {
+                        return applyDateOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("TimeMicrosOperatorClause")) {
+                        return applyTimeMicrosOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("DecimalOperatorClause")) {
+                        return applyDecimalOperators(fieldValue, operatorClause);
+                    } else if (operatorClause instanceof Map) {
+                        for (Map.Entry<String, Object> opEntry : ((Map<String, Object>) operatorClause).entrySet()) {
+                            if (!operatorResolver.apply(fieldValue, opEntry.getKey(), opEntry.getValue())) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                }
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        };
+    }
+
+    private boolean applyStringOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyDateOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyTimeMicrosOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyDecimalOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyOperatorsByReflection(Object fieldValue, Object operators) {
+        try {
+            for (Field opField : operators.getClass().getDeclaredFields()) {
+                opField.setAccessible(true);
+                Object opValue = opField.get(operators);
+                if (opValue != null && !operatorResolver.apply(fieldValue, opField.getName(), opValue)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private Field getFieldRecursive(Class<?> type, String fieldName) {
+        while (type != null) {
+            try {
+                return type.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    private String deCapitalize(String str) {
+        if (str == null || str.isEmpty()) return str;
+        return str.substring(0, 1).toLowerCase() + str.substring(1);
+    }
+}
+
+// ---------------------------
+@QueryMapping
+public <T> List<T> yourEntity(
+    @Argument("query") Object query,
+    GraphQLContext context,
+    Class<T> entityClass,
+    Class<?> queryClass
+) {
+    Object whereClause = null;
+    List<?> sortList = null;
+    Object limit = null;
+
+    try {
+        Field whereField = queryClass.getDeclaredField("where");
+        whereField.setAccessible(true);
+        whereClause = whereField.get(query);
+
+        Field sortField = queryClass.getDeclaredField("sort");
+        sortField.setAccessible(true);
+        sortList = (List<?>) sortField.get(query);
+
+        Field limitField = queryClass.getDeclaredField("limit");
+        limitField.setAccessible(true);
+        limit = limitField.get(query);
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+
+    List<T> data = fetchYourData(); // Replace with actual source
+
+    if (whereClause != null) {
+        FilterEngine<T> filterEngine = new FilterEngine<>(entityClass);
+        data = filterEngine.filter(data, whereClause);
+    }
+
+    if (sortList != null && !sortList.isEmpty()) {
+        Map<String, SortOrder> sortMap = extractSortMap(sortList);
+        SortEngine<T> sortEngine = new SortEngine<>(entityClass);
+        data = data.stream().sorted(sortEngine.buildComparator(sortMap)).toList();
+    }
+
+    if (limit != null) {
+        try {
+            Field pageSizeField = limit.getClass().getDeclaredField("pageSize");
+            Field pageField = limit.getClass().getDeclaredField("page");
+
+            pageSizeField.setAccessible(true);
+            pageField.setAccessible(true);
+
+            Integer pageSize = (Integer) pageSizeField.get(limit);
+            Integer page = (Integer) pageField.get(limit);
+
+            if (pageSize != null && pageSize > 0) {
+                data = PaginationUtils.paginate(data, Optional.ofNullable(page).orElse(0), pageSize);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    return data;
+}
+
+//--------------------------------
+private Map<String, SortOrder> extractSortMap(List<?> sortList) {
+    Map<String, SortOrder> map = new LinkedHashMap<>();
+    for (Object clause : sortList) {
+        for (Field field : clause.getClass().getDeclaredFields()) {
+            try {
+                field.setAccessible(true);
+                Object sortOrder = field.get(clause);
+                if (sortOrder instanceof SortOrder) {
+                    map.put(field.getName(), (SortOrder) sortOrder);
+                }
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    return map;
+}
