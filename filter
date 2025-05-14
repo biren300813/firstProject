@@ -324,3 +324,23 @@ public class ClaimTransactionWiringConfig {
     }
 }
 
+//----------------------------------
+package example.graphql.config;
+
+import java.util.Map;
+
+public class DynamicFilterRegistry {
+
+    // Map<GraphQLTypeName, Map<FieldName, JavaClass>>
+    public static final Map<String, Map<String, Class<?>>> FILTERABLE_FIELDS = Map.of(
+        "ClaimTransaction", Map.of(
+            "claimDiagnosisCode", example.model.ClaimDiagnosisCode.class,
+            "adjRequest", example.model.AdjRequest.class
+        ),
+        "ClaimAggregate", Map.of(
+            "claimNotes", example.model.ClaimNote.class,
+            "claimContacts", example.model.ClaimContact.class
+        )
+        // Add more types and fields as needed
+    );
+}
