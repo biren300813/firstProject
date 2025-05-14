@@ -248,3 +248,79 @@ private Map<String, SortOrder> extractSortMap(List<?> sortList) {
     }
     return map;
 }
+
+// ---------------------------------------------
+package example.graphql.config;
+
+import example.engine.FilterEngine;
+import example.model.AdjRequest;
+import example.model.ClaimDiagnosisCode;
+import graphql.schema.DataFetcher;
+import graphql.schema.DataFetchingEnvironment;
+import graphql.schema.idl.RuntimeWiring;
+import graphql.schema.idl.TypeRuntimeWiring;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.graphql.execution.RuntimeWiringConfigurer;
+
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+@Configuration
+public class ClaimTransactionWiringConfig {
+
+    @Bean
+    public RuntimeWiringConfigurer dynamicFilterWiring() {
+        return wiringBuilder -> wiringBuilder
+            .type(TypeRuntimeWiring.newTypeWiring("ClaimTransaction")
+                .dataFetcher("claimDiagnosisCode", dynamicFilterFetcher(ClaimDiagnosisCode.class))
+                .dataFetcher("adjRequest", dynamicFilterFetcher(AdjRequest.class))
+            );
+    }
+
+    public <T> DataFetcher<List<T>> dynamicFilterFetcher(Class<T> targetType) {
+        return env -> {
+            Object source = env.getSource();
+            String fieldName = env.getField().getName(); // "claimDiagnosisCode" or "adjRequest"
+            Object filtersArg = env.getArgument("filters");
+
+            // Get the target list from the parent object
+            Field listField = getFieldRecursive(source.getClass(), fieldName);
+            if (listField == null) return Collections.emptyList();
+
+            listField.setAccessible(true);
+            List<T> rawList = (List<T>) listField.get(source);
+            if (rawList == null || rawList.isEmpty()) return rawList;
+
+            // Get the where clause inside filtersArg
+            Object whereClause = null;
+            if (filtersArg != null) {
+                Field whereField = getFieldRecursive(filtersArg.getClass(), "where");
+                if (whereField != null) {
+                    whereField.setAccessible(true);
+                    whereClause = whereField.get(filtersArg);
+                }
+            }
+
+            if (whereClause == null) return rawList;
+
+            // Apply filtering dynamically
+            FilterEngine<T> filterEngine = new FilterEngine<>(targetType);
+            return filterEngine.filter(rawList, whereClause);
+        };
+    }
+
+    private Field getFieldRecursive(Class<?> type, String name) {
+        while (type != null) {
+            try {
+                return type.getDeclaredField(name);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        return null;
+    }
+}
+
