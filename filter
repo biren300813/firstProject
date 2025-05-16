@@ -448,3 +448,23 @@ public class DynamicFilterRegistry {
         }
         throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
     }
+//------------
+private static int compare(Object a, Object b) {
+    if (a == null || b == null) return -1;
+
+    if (a instanceof Comparable && b != null && a.getClass().isAssignableFrom(b.getClass())) {
+        return ((Comparable<Object>) a).compareTo(b);
+    } else if (b instanceof Comparable && a != null && b.getClass().isAssignableFrom(a.getClass())) {
+        return -((Comparable<Object>) b).compareTo(a); // Invert for consistency
+    }
+
+    // Special handling for numeric comparisons
+    if (a instanceof Number && b instanceof Number) {
+        double da = ((Number) a).doubleValue();
+        double db = ((Number) b).doubleValue();
+        return Double.compare(da, db);
+    }
+
+    throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
+}
+
