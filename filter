@@ -351,3 +351,100 @@ public class DynamicFilterRegistry {
         // Add more types and fields as needed
     );
 }
+//--------------------------------
+    // Equality
+    _eq((field, value) -> record -> Objects.equals(record.get(field), value)),
+    _neq((field, value) -> record -> !Objects.equals(record.get(field), value)),
+
+    // Case-insensitive equality
+    _iEq((field, value) -> record -> equalsIgnoreCase(record.get(field), value)),
+    _iNeq((field, value) -> record -> !equalsIgnoreCase(record.get(field), value)),
+
+    // LIKE / ILIKE
+    _like((field, value) -> record -> contains(record.get(field), value, false)),
+    _iLike((field, value) -> record -> contains(record.get(field), value, true)),
+
+    // Regex
+    _matches((field, value) -> record -> matchesRegex(record.get(field), value)),
+
+    // Existence check
+    _exists((field, value) -> record -> {
+        if (!(value instanceof Boolean bool)) return false;
+        return bool == (record.get(field) != null);
+    }),
+
+    // List membership
+    _within((field, value) -> record -> inList(record.get(field), value, false)),
+    _without((field, value) -> record -> !inList(record.get(field), value, false)),
+    _iWithin((field, value) -> record -> inList(record.get(field), value, true)),
+    _iWithout((field, value) -> record -> !inList(record.get(field), value, true)),
+
+    // Comparisons (Numbers, Dates, Comparable)
+    _gt((field, value) -> record -> compare(record.get(field), value) > 0),
+    _gte((field, value) -> record -> compare(record.get(field), value) >= 0),
+    _lt((field, value) -> record -> compare(record.get(field), value) < 0),
+    _lte((field, value) -> record -> compare(record.get(field), value) <= 0);
+
+    private final FilterLogic logic;
+
+    GraphQLConditionalClauseEnum(FilterLogic logic) {
+        this.logic = logic;
+    }
+
+    public Function<String, Predicate<Record>> filterCriteria(Object value) {
+        return field -> logic.apply(field, value);
+    }
+
+    @FunctionalInterface
+    public interface FilterLogic {
+        Predicate<Record> apply(String field, Object value);
+    }
+
+    public static class Record {
+        private final Map<String, Object> fields;
+
+        public Record(Map<String, Object> fields) {
+            this.fields = fields;
+        }
+
+        public Object get(String key) {
+            return fields.get(key);
+        }
+    }
+
+    // ---------- Helper Methods ----------
+
+    private static boolean contains(Object a, Object b, boolean ignoreCase) {
+        if (!(a instanceof String sa) || !(b instanceof String sb)) return false;
+        if (ignoreCase) {
+            return sa.toLowerCase().contains(sb.toLowerCase());
+        }
+        return sa.contains(sb);
+    }
+
+    private static boolean equalsIgnoreCase(Object a, Object b) {
+        return a instanceof String sa && b instanceof String sb && sa.equalsIgnoreCase(sb);
+    }
+
+    private static boolean matchesRegex(Object a, Object pattern) {
+        return a instanceof String sa && pattern instanceof String regex && sa.matches(regex);
+    }
+
+    private static boolean inList(Object a, Object b, boolean ignoreCase) {
+        if (!(b instanceof Collection<?> list)) return false;
+        if (ignoreCase && a instanceof String sa) {
+            return list.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .anyMatch(sb -> sa.equalsIgnoreCase(sb));
+        }
+        return list.contains(a);
+    }
+
+    private static int compare(Object a, Object b) {
+        if (a == null || b == null) return -1;
+        if (a instanceof Comparable ca && b.getClass().isAssignableFrom(a.getClass())) {
+            return ca.compareTo(b);
+        }
+        throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
+    }
