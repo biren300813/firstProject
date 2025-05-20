@@ -289,5 +289,29 @@ public class OAuthTokenException extends RuntimeException {
 }
 
 // ----------------------------
+package com.example.auth.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class OAuthPropertiesConfig {
+
+    @Bean(name = "srcOAuthProps")
+    @ConfigurationProperties(prefix = "api.sources.src.oauth")
+    public OAuthProperties srcOAuthProps() {
+        return new OAuthProperties();
+    }
+
+    // Optionally, define other sources here if needed
+    /*
+    @Bean(name = "anotherOAuthProps")
+    @ConfigurationProperties(prefix = "api.sources.other.oauth")
+    public OAuthProperties anotherOAuthProps() {
+        return new OAuthProperties();
+    }
+    */
+}
 
 // ----------------------------
