@@ -557,3 +557,26 @@ public class LoggingGraphQlInterceptor implements WebGraphQlInterceptor {
         return chain.next(request);
     }
 }
+//------------------------
+dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-graphql'
+
+    // Extended scalars (e.g., DateTime, BigDecimal, etc.)
+    implementation 'com.graphql-java:graphql-java-extended-scalars:22.0'
+
+    // Optional: GraphQL Playground alternative for dev/testing (optional, pick one playground)
+    implementation 'com.graphql-java:graphql-java-spring-boot-starter-playground:1.0.0'
+
+    // Kotlin support
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0'
+
+    // Validation
+    implementation 'jakarta.validation:jakarta.validation-api:3.1.1'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
