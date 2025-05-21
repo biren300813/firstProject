@@ -469,34 +469,26 @@ private static int compare(Object a, Object b) {
 }
 
 // ----------------------------
-import graphql.GraphQLContext;
 import graphql.execution.instrumentation.Instrumentation;
-import graphql.execution.instrumentation.InstrumentationContext;
-import graphql.execution.instrumentation.parameters.InstrumentationExecutionInputParameters;
-import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters;
-import graphql.execution.instrumentation.parameters.InstrumentationValidationParameters;
-import graphql.language.Document;
-import graphql.schema.GraphQLSchema;
-import graphql.execution.ExecutionInput;
-import graphql.ExecutionResult;
-import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 import graphql.execution.instrumentation.SimpleInstrumentation;
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionParameters;
+import graphql.execution.ExecutionInput;
+import graphql.execution.ExecutionResult;
+import graphql.execution.instrumentation.InstrumentationContext;
+import org.springframework.stereotype.Component;
 
 @Component
 public class LoggingInstrumentation extends SimpleInstrumentation {
 
     @Override
-    public InstrumentationContext<ExecutionInput> beginExecutionInput(InstrumentationExecutionInputParameters parameters) {
+    public InstrumentationContext<ExecutionResult> beginExecution(InstrumentationExecutionParameters parameters) {
         ExecutionInput input = parameters.getExecutionInput();
-        System.out.println("📝 Query Document:\n" + input.getQuery());
-        System.out.println("📦 Variables:\n" + input.getVariables());
-        return super.beginExecutionInput(parameters);
-    }
 
-    @Override
-    public InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
-        return super.beginExecuteOperation(parameters);
+        System.out.println("📥 Incoming GraphQL Query:\n" + input.getQuery());
+        System.out.println("📦 Variables:\n" + input.getVariables());
+
+        return super.beginExecution(parameters);
     }
 }
+
 
