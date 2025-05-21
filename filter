@@ -538,3 +538,22 @@ implementation 'com.graphql-java-kickstart:graphql-spring-boot-starter'
 implementation 'com.graphql-java-kickstart:graphql-java-tools'
 implementation 'com.graphql-java-kickstart:playground-spring-boot-starter'
 implementation 'com.graphql-java:graphql-java:23.1'
+//-------
+import org.springframework.graphql.execution.WebGraphQlInterceptor;
+import org.springframework.graphql.execution.WebGraphQlRequest;
+import org.springframework.graphql.execution.WebGraphQlResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+@Component
+public class LoggingGraphQlInterceptor implements WebGraphQlInterceptor {
+
+    @Override
+    public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
+        System.out.println("📥 Intercepted GraphQL Request");
+        System.out.println("➡️ Query Document: " + request.getDocument());
+        System.out.println("🧾 Variables: " + request.getVariables());
+
+        return chain.next(request);
+    }
+}
