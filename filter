@@ -469,21 +469,34 @@ private static int compare(Object a, Object b) {
 }
 
 // ----------------------------
-import org.springframework.graphql.execution.WebGraphQlInterceptor;
-import org.springframework.graphql.execution.WebGraphQlRequest;
-import org.springframework.graphql.execution.WebGraphQlResponse;
+import graphql.GraphQLContext;
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.InstrumentationContext;
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionInputParameters;
+import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters;
+import graphql.execution.instrumentation.parameters.InstrumentationValidationParameters;
+import graphql.language.Document;
+import graphql.schema.GraphQLSchema;
+import graphql.execution.ExecutionInput;
+import graphql.ExecutionResult;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import graphql.execution.instrumentation.SimpleInstrumentation;
 
 @Component
-public class LoggingGraphQlInterceptor implements WebGraphQlInterceptor {
+public class LoggingInstrumentation extends SimpleInstrumentation {
 
     @Override
-    public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
-        System.out.println("📥 Incoming GraphQL request:");
-        System.out.println("➡️ Query Document:\n" + request.getDocument());
-        System.out.println("🧾 Variables:\n" + request.getVariables());
+    public InstrumentationContext<ExecutionInput> beginExecutionInput(InstrumentationExecutionInputParameters parameters) {
+        ExecutionInput input = parameters.getExecutionInput();
+        System.out.println("📝 Query Document:\n" + input.getQuery());
+        System.out.println("📦 Variables:\n" + input.getVariables());
+        return super.beginExecutionInput(parameters);
+    }
 
-        return chain.next(request);
+    @Override
+    public InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
+        return super.beginExecuteOperation(parameters);
     }
 }
+
