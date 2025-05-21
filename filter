@@ -468,3 +468,22 @@ private static int compare(Object a, Object b) {
     throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
 }
 
+// ----------------------------
+import org.springframework.graphql.execution.WebGraphQlInterceptor;
+import org.springframework.graphql.execution.WebGraphQlRequest;
+import org.springframework.graphql.execution.WebGraphQlResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+@Component
+public class LoggingGraphQlInterceptor implements WebGraphQlInterceptor {
+
+    @Override
+    public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
+        System.out.println("📥 Incoming GraphQL request:");
+        System.out.println("➡️ Query Document:\n" + request.getDocument());
+        System.out.println("🧾 Variables:\n" + request.getVariables());
+
+        return chain.next(request);
+    }
+}
