@@ -1,0 +1,77 @@
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
+import java.io.*;
+import java.util.zip.GZIPInputStream;
+import org.springframework.stereotype.Component;
+
+@Component
+public class GzipDecompressingFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+
+        // Only decompress if Content-Encoding is gzip
+        if ("gzip".equalsIgnoreCase(httpRequest.getHeader("Content-Encoding"))) {
+            GZIPHttpServletRequestWrapper decompressedRequest = new GZIPHttpServletRequestWrapper(httpRequest);
+            chain.doFilter(decompressedRequest, response);
+        } else {
+            chain.doFilter(request, response);
+        }
+    }
+}
+
+//-------------------
+class GZIPHttpServletRequestWrapper extends HttpServletRequestWrapper {
+
+    private final byte[] decompressedBody;
+
+    public GZIPHttpServletRequestWrapper(HttpServletRequest request) throws IOException {
+        super(request);
+        try (GZIPInputStream gzipStream = new GZIPInputStream(request.getInputStream());
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            byte[] buffer = new byte[1024];
+            int len;
+            while ((len = gzipStream.read(buffer)) > 0) {
+                out.write(buffer, 0, len);
+            }
+            this.decompressedBody = out.toByteArray();
+        }
+    }
+
+    @Override
+    public ServletInputStream getInputStream() {
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(decompressedBody);
+
+        return new ServletInputStream() {
+            @Override
+            public boolean isFinished() {
+                return byteArrayInputStream.available() == 0;
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setReadListener(ReadListener readListener) {
+                // no-op
+            }
+
+            @Override
+            public int read() {
+                return byteArrayInputStream.read();
+            }
+        };
+    }
+
+    @Override
+    public BufferedReader getReader() {
+        return new BufferedReader(new InputStreamReader(getInputStream()));
+    }
+}
