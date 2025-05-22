@@ -1,0 +1,582 @@
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+public class FilterEngine<T> {
+    private final Class<T> clazz;
+    private final OperatorResolver operatorResolver = new OperatorResolver();
+
+    public FilterEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public List<T> filter(List<T> data, Object whereClause) {
+        if (whereClause == null) return data;
+        Predicate<T> predicate = buildPredicate(whereClause);
+        return data.stream().filter(predicate).collect(Collectors.toList());
+    }
+
+    private Predicate<T> buildPredicate(Object whereClause) {
+        if (whereClause instanceof Map) {
+            return buildPredicateFromMap((Map<String, Object>) whereClause);
+        } else {
+            return buildPredicateFromObject(whereClause);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Predicate<T> buildPredicateFromMap(Map<String, Object> filterMap) {
+        List<Predicate<T>> andPredicates = new ArrayList<>();
+        List<Predicate<T>> orPredicates = new ArrayList<>();
+
+        for (Map.Entry<String, Object> entry : filterMap.entrySet()) {
+            String field = entry.getKey();
+            Object value = entry.getValue();
+
+            if ("and".equals(field) || "or".equals(field)) {
+                if (value instanceof List) {
+                    List<Map<String, Object>> subClauses = (List<Map<String, Object>>) value;
+                    List<Predicate<T>> subPredicates = subClauses.stream()
+                        .map(this::buildPredicateFromMap)
+                        .collect(Collectors.toList());
+
+                    if ("and".equals(field)) andPredicates.addAll(subPredicates);
+                    else orPredicates.addAll(subPredicates);
+                }
+            } else {
+                andPredicates.add(createFieldPredicate(field, value));
+            }
+        }
+
+        Predicate<T> andPredicate = andPredicates.stream().reduce(x -> true, Predicate::and);
+        Predicate<T> orPredicate = orPredicates.stream().reduce(x -> false, Predicate::or);
+        return orPredicates.isEmpty() ? andPredicate : andPredicate.and(orPredicate);
+    }
+
+    private Predicate<T> buildPredicateFromObject(Object clause) {
+        List<Predicate<T>> andPredicates = new ArrayList<>();
+        List<Predicate<T>> orPredicates = new ArrayList<>();
+
+        try {
+            for (Field field : clause.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object fieldValue = field.get(clause);
+
+                if ("and".equals(field.getName()) && fieldValue instanceof List) {
+                    ((List<?>) fieldValue).forEach(subClause -> andPredicates.add(buildPredicate(subClause)));
+                } else if ("or".equals(field.getName()) && fieldValue instanceof List) {
+                    ((List<?>) fieldValue).forEach(subClause -> orPredicates.add(buildPredicate(subClause)));
+                } else if (fieldValue != null &&
+                           field.getName().equals(deCapitalize(field.getType().getSimpleName().replace("OperatorClause", "")))) {
+                    andPredicates.add(createFieldPredicate(field.getName(), fieldValue));
+                }
+            }
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+            return x -> false;
+        }
+
+        Predicate<T> andPredicate = andPredicates.stream().reduce(x -> true, Predicate::and);
+        Predicate<T> orPredicate = orPredicates.stream().reduce(x -> false, Predicate::or);
+        return orPredicates.isEmpty() ? andPredicate : andPredicate.and(orPredicate);
+    }
+
+    private Predicate<T> createFieldPredicate(String fieldName, Object operatorClause) {
+        return record -> {
+            try {
+                Field targetField = getFieldRecursive(clazz, fieldName);
+                if (targetField == null) return false;
+
+                targetField.setAccessible(true);
+                Object fieldValue = targetField.get(record);
+
+                if (operatorClause != null) {
+                    String typeName = operatorClause.getClass().getSimpleName();
+
+                    if (typeName.contains("StringOperatorClause")) {
+                        return applyStringOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("DateOperatorClause")) {
+                        return applyDateOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("TimeMicrosOperatorClause")) {
+                        return applyTimeMicrosOperators(fieldValue, operatorClause);
+                    } else if (typeName.contains("DecimalOperatorClause")) {
+                        return applyDecimalOperators(fieldValue, operatorClause);
+                    } else if (operatorClause instanceof Map) {
+                        for (Map.Entry<String, Object> opEntry : ((Map<String, Object>) operatorClause).entrySet()) {
+                            if (!operatorResolver.apply(fieldValue, opEntry.getKey(), opEntry.getValue())) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                }
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        };
+    }
+
+    private boolean applyStringOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyDateOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyTimeMicrosOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyDecimalOperators(Object fieldValue, Object operators) {
+        return applyOperatorsByReflection(fieldValue, operators);
+    }
+
+    private boolean applyOperatorsByReflection(Object fieldValue, Object operators) {
+        try {
+            for (Field opField : operators.getClass().getDeclaredFields()) {
+                opField.setAccessible(true);
+                Object opValue = opField.get(operators);
+                if (opValue != null && !operatorResolver.apply(fieldValue, opField.getName(), opValue)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private Field getFieldRecursive(Class<?> type, String fieldName) {
+        while (type != null) {
+            try {
+                return type.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    private String deCapitalize(String str) {
+        if (str == null || str.isEmpty()) return str;
+        return str.substring(0, 1).toLowerCase() + str.substring(1);
+    }
+}
+
+// ---------------------------
+@QueryMapping
+public <T> List<T> yourEntity(
+    @Argument("query") Object query,
+    GraphQLContext context,
+    Class<T> entityClass,
+    Class<?> queryClass
+) {
+    Object whereClause = null;
+    List<?> sortList = null;
+    Object limit = null;
+
+    try {
+        Field whereField = queryClass.getDeclaredField("where");
+        whereField.setAccessible(true);
+        whereClause = whereField.get(query);
+
+        Field sortField = queryClass.getDeclaredField("sort");
+        sortField.setAccessible(true);
+        sortList = (List<?>) sortField.get(query);
+
+        Field limitField = queryClass.getDeclaredField("limit");
+        limitField.setAccessible(true);
+        limit = limitField.get(query);
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+
+    List<T> data = fetchYourData(); // Replace with actual source
+
+    if (whereClause != null) {
+        FilterEngine<T> filterEngine = new FilterEngine<>(entityClass);
+        data = filterEngine.filter(data, whereClause);
+    }
+
+    if (sortList != null && !sortList.isEmpty()) {
+        Map<String, SortOrder> sortMap = extractSortMap(sortList);
+        SortEngine<T> sortEngine = new SortEngine<>(entityClass);
+        data = data.stream().sorted(sortEngine.buildComparator(sortMap)).toList();
+    }
+
+    if (limit != null) {
+        try {
+            Field pageSizeField = limit.getClass().getDeclaredField("pageSize");
+            Field pageField = limit.getClass().getDeclaredField("page");
+
+            pageSizeField.setAccessible(true);
+            pageField.setAccessible(true);
+
+            Integer pageSize = (Integer) pageSizeField.get(limit);
+            Integer page = (Integer) pageField.get(limit);
+
+            if (pageSize != null && pageSize > 0) {
+                data = PaginationUtils.paginate(data, Optional.ofNullable(page).orElse(0), pageSize);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    return data;
+}
+
+//--------------------------------
+private Map<String, SortOrder> extractSortMap(List<?> sortList) {
+    Map<String, SortOrder> map = new LinkedHashMap<>();
+    for (Object clause : sortList) {
+        for (Field field : clause.getClass().getDeclaredFields()) {
+            try {
+                field.setAccessible(true);
+                Object sortOrder = field.get(clause);
+                if (sortOrder instanceof SortOrder) {
+                    map.put(field.getName(), (SortOrder) sortOrder);
+                }
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    return map;
+}
+
+// ---------------------------------------------
+package example.graphql.config;
+
+import example.engine.FilterEngine;
+import example.model.AdjRequest;
+import example.model.ClaimDiagnosisCode;
+import graphql.schema.DataFetcher;
+import graphql.schema.DataFetchingEnvironment;
+import graphql.schema.idl.RuntimeWiring;
+import graphql.schema.idl.TypeRuntimeWiring;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.graphql.execution.RuntimeWiringConfigurer;
+
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+@Configuration
+public class ClaimTransactionWiringConfig {
+
+    @Bean
+    public RuntimeWiringConfigurer dynamicFilterWiring() {
+        return wiringBuilder -> {
+            DynamicFilterRegistry.FILTERABLE_FIELDS.forEach((typeName, fieldMap) -> {
+                wiringBuilder.type(typeName, typeWiring -> {
+                    for (Map.Entry<String, Class<?>> entry : fieldMap.entrySet()) {
+                        String fieldName = entry.getKey();
+                        Class<?> targetClass = entry.getValue();
+                        typeWiring = typeWiring.dataFetcher(fieldName, dynamicFilterFetcher(targetClass));
+                    }
+                    return typeWiring;
+                });
+            });
+        };
+    }
+
+    public <T> DataFetcher<List<T>> dynamicFilterFetcher(Class<T> targetType) {
+        return env -> {
+            Object source = env.getSource();
+            String fieldName = env.getField().getName(); // "claimDiagnosisCode" or "adjRequest"
+            Object filtersArg = env.getArgument("filters");
+
+            // Get the target list from the parent object
+            Field listField = getFieldRecursive(source.getClass(), fieldName);
+            if (listField == null) return Collections.emptyList();
+
+            listField.setAccessible(true);
+            List<T> rawList = (List<T>) listField.get(source);
+            if (rawList == null || rawList.isEmpty()) return rawList;
+
+            // Get the where clause inside filtersArg
+            Object whereClause = null;
+            if (filtersArg != null) {
+                Field whereField = getFieldRecursive(filtersArg.getClass(), "where");
+                if (whereField != null) {
+                    whereField.setAccessible(true);
+                    whereClause = whereField.get(filtersArg);
+                }
+            }
+
+            if (whereClause == null) return rawList;
+
+            // Apply filtering dynamically
+            FilterEngine<T> filterEngine = new FilterEngine<>(targetType);
+            return filterEngine.filter(rawList, whereClause);
+        };
+    }
+
+    private Field getFieldRecursive(Class<?> type, String name) {
+        while (type != null) {
+            try {
+                return type.getDeclaredField(name);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        return null;
+    }
+}
+
+//----------------------------------
+package example.graphql.config;
+
+import java.util.Map;
+
+public class DynamicFilterRegistry {
+
+    // Map<GraphQLTypeName, Map<FieldName, JavaClass>>
+    public static final Map<String, Map<String, Class<?>>> FILTERABLE_FIELDS = Map.of(
+        "ClaimTransaction", Map.of(
+            "claimDiagnosisCode", example.model.ClaimDiagnosisCode.class,
+            "adjRequest", example.model.AdjRequest.class
+        ),
+        "ClaimAggregate", Map.of(
+            "claimNotes", example.model.ClaimNote.class,
+            "claimContacts", example.model.ClaimContact.class
+        )
+        // Add more types and fields as needed
+    );
+}
+//--------------------------------
+    // Equality
+    _eq((field, value) -> record -> Objects.equals(record.get(field), value)),
+    _neq((field, value) -> record -> !Objects.equals(record.get(field), value)),
+
+    // Case-insensitive equality
+    _iEq((field, value) -> record -> equalsIgnoreCase(record.get(field), value)),
+    _iNeq((field, value) -> record -> !equalsIgnoreCase(record.get(field), value)),
+
+    // LIKE / ILIKE
+    _like((field, value) -> record -> contains(record.get(field), value, false)),
+    _iLike((field, value) -> record -> contains(record.get(field), value, true)),
+
+    // Regex
+    _matches((field, value) -> record -> matchesRegex(record.get(field), value)),
+
+    // Existence check
+    _exists((field, value) -> record -> {
+        if (!(value instanceof Boolean bool)) return false;
+        return bool == (record.get(field) != null);
+    }),
+
+    // List membership
+    _within((field, value) -> record -> inList(record.get(field), value, false)),
+    _without((field, value) -> record -> !inList(record.get(field), value, false)),
+    _iWithin((field, value) -> record -> inList(record.get(field), value, true)),
+    _iWithout((field, value) -> record -> !inList(record.get(field), value, true)),
+
+    // Comparisons (Numbers, Dates, Comparable)
+    _gt((field, value) -> record -> compare(record.get(field), value) > 0),
+    _gte((field, value) -> record -> compare(record.get(field), value) >= 0),
+    _lt((field, value) -> record -> compare(record.get(field), value) < 0),
+    _lte((field, value) -> record -> compare(record.get(field), value) <= 0);
+
+    private final FilterLogic logic;
+
+    GraphQLConditionalClauseEnum(FilterLogic logic) {
+        this.logic = logic;
+    }
+
+    public Function<String, Predicate<Record>> filterCriteria(Object value) {
+        return field -> logic.apply(field, value);
+    }
+
+    @FunctionalInterface
+    public interface FilterLogic {
+        Predicate<Record> apply(String field, Object value);
+    }
+
+    public static class Record {
+        private final Map<String, Object> fields;
+
+        public Record(Map<String, Object> fields) {
+            this.fields = fields;
+        }
+
+        public Object get(String key) {
+            return fields.get(key);
+        }
+    }
+
+    // ---------- Helper Methods ----------
+
+    private static boolean contains(Object a, Object b, boolean ignoreCase) {
+        if (!(a instanceof String sa) || !(b instanceof String sb)) return false;
+        if (ignoreCase) {
+            return sa.toLowerCase().contains(sb.toLowerCase());
+        }
+        return sa.contains(sb);
+    }
+
+    private static boolean equalsIgnoreCase(Object a, Object b) {
+        return a instanceof String sa && b instanceof String sb && sa.equalsIgnoreCase(sb);
+    }
+
+    private static boolean matchesRegex(Object a, Object pattern) {
+        return a instanceof String sa && pattern instanceof String regex && sa.matches(regex);
+    }
+
+    private static boolean inList(Object a, Object b, boolean ignoreCase) {
+        if (!(b instanceof Collection<?> list)) return false;
+        if (ignoreCase && a instanceof String sa) {
+            return list.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .anyMatch(sb -> sa.equalsIgnoreCase(sb));
+        }
+        return list.contains(a);
+    }
+
+    private static int compare(Object a, Object b) {
+        if (a == null || b == null) return -1;
+        if (a instanceof Comparable ca && b.getClass().isAssignableFrom(a.getClass())) {
+            return ca.compareTo(b);
+        }
+        throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
+    }
+//------------
+private static int compare(Object a, Object b) {
+    if (a == null || b == null) return -1;
+
+    if (a instanceof Comparable && b != null && a.getClass().isAssignableFrom(b.getClass())) {
+        return ((Comparable<Object>) a).compareTo(b);
+    } else if (b instanceof Comparable && a != null && b.getClass().isAssignableFrom(a.getClass())) {
+        return -((Comparable<Object>) b).compareTo(a); // Invert for consistency
+    }
+
+    // Special handling for numeric comparisons
+    if (a instanceof Number && b instanceof Number) {
+        double da = ((Number) a).doubleValue();
+        double db = ((Number) b).doubleValue();
+        return Double.compare(da, db);
+    }
+
+    throw new IllegalArgumentException("Values are not comparable: " + a + ", " + b);
+}
+
+// ----------------------------
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.SimpleInstrumentation;
+import graphql.execution.instrumentation.parameters.InstrumentationExecutionParameters;
+import graphql.execution.ExecutionInput;
+import graphql.execution.ExecutionResult;
+import graphql.execution.instrumentation.InstrumentationContext;
+import org.springframework.stereotype.Component;
+
+@Component
+public class LoggingInstrumentation extends SimpleInstrumentation {
+
+    @Override
+    public InstrumentationContext<ExecutionResult> beginExecution(InstrumentationExecutionParameters parameters) {
+        ExecutionInput input = parameters.getExecutionInput();
+
+        System.out.println("📥 Incoming GraphQL Query:\n" + input.getQuery());
+        System.out.println("📦 Variables:\n" + input.getVariables());
+
+        return super.beginExecution(parameters);
+    }
+}
+
+
+//----------------------
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.5'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.jetbrains.kotlin.jvm' version '1.9.25'
+    id 'org.jetbrains.kotlin.plugin.spring' version '1.9.25'
+    id 'com.diffplug.spotless' version '6.25.0'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-graphql' // ✅ Spring GraphQL
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    implementation 'com.graphql-java:graphql-java-extended-scalars:22.0' // optional scalars
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.graphql:spring-graphql-test'
+}
+
+compileKotlin {
+    kotlinOptions.jvmTarget = "21"
+}
+compileTestKotlin {
+    kotlinOptions.jvmTarget = "21"
+}
+
+//---------
+// REMOVE ALL OF THESE 👇
+implementation 'com.graphql-java-kickstart:graphql-spring-boot-starter'
+implementation 'com.graphql-java-kickstart:graphql-java-tools'
+implementation 'com.graphql-java-kickstart:playground-spring-boot-starter'
+implementation 'com.graphql-java:graphql-java:23.1'
+//-------
+import org.springframework.graphql.execution.WebGraphQlInterceptor;
+import org.springframework.graphql.execution.WebGraphQlRequest;
+import org.springframework.graphql.execution.WebGraphQlResponse;
+import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
+
+@Component
+public class LoggingGraphQlInterceptor implements WebGraphQlInterceptor {
+
+    @Override
+    public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
+        System.out.println("📥 Intercepted GraphQL Request");
+        System.out.println("➡️ Query Document: " + request.getDocument());
+        System.out.println("🧾 Variables: " + request.getVariables());
+
+        return chain.next(request);
+    }
+}
+//------------------------
+dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-graphql'
+
+    // Extended scalars (e.g., DateTime, BigDecimal, etc.)
+    implementation 'com.graphql-java:graphql-java-extended-scalars:22.0'
+
+    // Optional: GraphQL Playground alternative for dev/testing (optional, pick one playground)
+    implementation 'com.graphql-java:graphql-java-spring-boot-starter-playground:1.0.0'
+
+    // Kotlin support
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+    implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0'
+
+    // Validation
+    implementation 'jakarta.validation:jakarta.validation-api:3.1.1'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}

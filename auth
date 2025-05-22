@@ -1,0 +1,317 @@
+package com.example.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "oauth")
+public class OAuthProperties {
+    private String tokenUrl;
+    private String grantType;
+    private String scope;
+    private String clientId;
+    private String clientSecret;
+}
+
+// ----------------------------
+package com.example.model;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@Data
+@AllArgsConstructor
+public class OAuthTokenRequest {
+    private String grant_type;
+    private String scope;
+    private String client_id;
+    private String client_secret;
+}
+
+// ----------------------------
+package com.example.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+@Data
+public class OAuthTokenResponse {
+    @JsonProperty("access_token")
+    private String accessToken;
+
+    @JsonProperty("token_type")
+    private String tokenType;
+
+    @JsonProperty("expires_in")
+    private int expiresIn;
+}
+
+// ----------------------------
+package com.example.service;
+
+import com.example.config.OAuthProperties;
+import com.example.model.OAuthTokenRequest;
+import com.example.model.OAuthTokenResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+@Service
+@RequiredArgsConstructor
+public class OAuthTokenService {
+
+    private final OAuthProperties properties;
+
+    private final WebClient webClient = WebClient.builder().build();
+
+    public Mono<OAuthTokenResponse> getToken() {
+        OAuthTokenRequest request = new OAuthTokenRequest(
+            properties.getGrantType(),
+            properties.getScope(),
+            properties.getClientId(),
+            properties.getClientSecret()
+        );
+
+        return webClient.post()
+                .uri(properties.getTokenUrl())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .bodyValue("grant_type=" + request.getGrant_type()
+                        + "&scope=" + request.getScope()
+                        + "&client_id=" + request.getClient_id()
+                        + "&client_secret=" + request.getClient_secret())
+                .retrieve()
+                .bodyToMono(OAuthTokenResponse.class);
+    }
+}
+
+// ----------------------------
+@SpringBootApplication
+@EnableConfigurationProperties(OAuthProperties.class)
+public class OAuthApp {
+    public static void main(String[] args) {
+        SpringApplication.run(OAuthApp.class, args);
+    }
+}
+
+// ----------------------------
+package com.example.service;
+
+import com.example.config.OAuthProperties;
+import com.example.model.OAuthTokenRequest;
+import com.example.model.OAuthTokenResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.concurrent.locks.ReentrantLock;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class OAuthTokenService {
+
+    private final OAuthProperties properties;
+
+    private final WebClient webClient = WebClient.builder().build();
+
+    private volatile OAuthTokenResponse cachedToken;
+    private volatile Instant tokenExpiryTime;
+    private final ReentrantLock lock = new ReentrantLock();
+
+    private static final int REFRESH_BUFFER_SECONDS = 60; // refresh 1 min before expiry
+
+    public Mono<String> getAccessToken() {
+        if (isTokenValid()) {
+            return Mono.just(cachedToken.getAccessToken());
+        }
+
+        return Mono.fromCallable(() -> {
+            lock.lock();
+            try {
+                if (isTokenValid()) {
+                    return cachedToken.getAccessToken(); // double-checked locking
+                }
+
+                log.info("Fetching new OAuth token...");
+                OAuthTokenResponse response = fetchNewToken();
+                cachedToken = response;
+                tokenExpiryTime = Instant.now().plusSeconds(response.getExpiresIn() - REFRESH_BUFFER_SECONDS);
+
+                log.info("Token acquired, expires at: {}", tokenExpiryTime);
+                return cachedToken.getAccessToken();
+            } finally {
+                lock.unlock();
+            }
+        });
+    }
+
+    private boolean isTokenValid() {
+        return cachedToken != null && tokenExpiryTime != null && Instant.now().isBefore(tokenExpiryTime);
+    }
+
+    private OAuthTokenResponse fetchNewToken() {
+        OAuthTokenRequest request = new OAuthTokenRequest(
+                properties.getGrantType(),
+                properties.getScope(),
+                properties.getClientId(),
+                properties.getClientSecret()
+        );
+
+        return webClient.post()
+                .uri(properties.getTokenUrl())
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .bodyValue("grant_type=" + request.getGrant_type()
+                        + "&scope=" + request.getScope()
+                        + "&client_id=" + request.getClient_id()
+                        + "&client_secret=" + request.getClient_secret())
+                .retrieve()
+                .bodyToMono(OAuthTokenResponse.class)
+                .block(); // Blocking here for simplicity inside Mono.fromCallable
+    }
+}
+
+// ----------------------------
+package com.example.service;
+
+import com.example.config.OAuthProperties;
+import com.example.model.OAuthTokenRequest;
+import com.example.model.OAuthTokenResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.concurrent.locks.ReentrantLock;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class OAuthTokenService {
+
+    private final OAuthProperties properties;
+    private final WebClient webClient = WebClient.builder().build();
+
+    private volatile OAuthTokenResponse cachedToken;
+    private volatile Instant tokenExpiryTime;
+    private final ReentrantLock lock = new ReentrantLock();
+
+    private static final int REFRESH_BUFFER_SECONDS = 60; // refresh 1 min before expiry
+
+    public Mono<String> getAccessToken() {
+        if (isTokenValid()) {
+            return Mono.just(cachedToken.getAccessToken());
+        }
+
+        return Mono.fromCallable(() -> {
+            lock.lock();
+            try {
+                if (isTokenValid()) {
+                    return cachedToken.getAccessToken(); // double-checked locking
+                }
+
+                log.info("Fetching new OAuth token...");
+                OAuthTokenResponse response = fetchNewToken();
+                if (response == null || response.getAccessToken() == null) {
+                    throw new OAuthTokenException("Received null token response or access token");
+                }
+
+                cachedToken = response;
+                tokenExpiryTime = Instant.now().plusSeconds(response.getExpiresIn() - REFRESH_BUFFER_SECONDS);
+
+                log.info("Token acquired, expires at: {}", tokenExpiryTime);
+                return cachedToken.getAccessToken();
+            } finally {
+                lock.unlock();
+            }
+        }).onErrorMap(ex -> {
+            log.error("Failed to get access token: {}", ex.getMessage(), ex);
+            return new OAuthTokenException("Failed to obtain OAuth token", ex);
+        });
+    }
+
+    private boolean isTokenValid() {
+        return cachedToken != null && tokenExpiryTime != null && Instant.now().isBefore(tokenExpiryTime);
+    }
+
+    private OAuthTokenResponse fetchNewToken() {
+        OAuthTokenRequest request = new OAuthTokenRequest(
+                properties.getGrantType(),
+                properties.getScope(),
+                properties.getClientId(),
+                properties.getClientSecret()
+        );
+
+        try {
+            return webClient.post()
+                    .uri(properties.getTokenUrl())
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .bodyValue("grant_type=" + request.getGrant_type()
+                            + "&scope=" + request.getScope()
+                            + "&client_id=" + request.getClient_id()
+                            + "&client_secret=" + request.getClient_secret())
+                    .retrieve()
+                    .onStatus(HttpStatus::isError, response ->
+                            response.bodyToMono(String.class).map(body ->
+                                    new OAuthTokenException("Token endpoint error: " + response.statusCode() + " - " + body)))
+                    .bodyToMono(OAuthTokenResponse.class)
+                    .block();
+        } catch (WebClientResponseException ex) {
+            log.error("WebClient error: status={}, body={}", ex.getRawStatusCode(), ex.getResponseBodyAsString(), ex);
+            throw new OAuthTokenException("WebClient error during token fetch", ex);
+        } catch (Exception ex) {
+            log.error("Unexpected error fetching token", ex);
+            throw new OAuthTokenException("Unexpected error fetching token", ex);
+        }
+    }
+}
+
+// ----------------------------
+package com.example.service;
+
+public class OAuthTokenException extends RuntimeException {
+    public OAuthTokenException(String message) {
+        super(message);
+    }
+
+    public OAuthTokenException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+// ----------------------------
+package com.example.auth.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class OAuthPropertiesConfig {
+
+    @Bean(name = "srcOAuthProps")
+    @ConfigurationProperties(prefix = "api.sources.src.oauth")
+    public OAuthProperties srcOAuthProps() {
+        return new OAuthProperties();
+    }
+
+    // Optionally, define other sources here if needed
+    /*
+    @Bean(name = "anotherOAuthProps")
+    @ConfigurationProperties(prefix = "api.sources.other.oauth")
+    public OAuthProperties anotherOAuthProps() {
+        return new OAuthProperties();
+    }
+    */
+}
+
+// ----------------------------
