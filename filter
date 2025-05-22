@@ -580,3 +580,77 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 }
+//--------------------------------------------------------------------
+@Component
+public class SmartGzipDecompressionFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+
+        try {
+            // Try decompressing regardless of header
+            HttpServletRequest unzippedRequest = new GZIPHttpServletRequestWrapper(httpRequest);
+            chain.doFilter(unzippedRequest, response);
+        } catch (NotGzipFormatException e) {
+            // Not GZIP? Use original body
+            chain.doFilter(httpRequest, response);
+        }
+    }
+}
+//--------------------------------------------------------------------
+public class NotGzipFormatException extends IOException {
+    public NotGzipFormatException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
+//--------------------------------------------------------------------
+class GZIPHttpServletRequestWrapper extends HttpServletRequestWrapper {
+
+    private final byte[] decompressedBody;
+
+    public GZIPHttpServletRequestWrapper(HttpServletRequest request) throws IOException {
+        super(request);
+        try (InputStream originalStream = request.getInputStream();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            // Try to wrap the original stream in GZIPInputStream
+            try (GZIPInputStream gzipStream = new GZIPInputStream(originalStream)) {
+                byte[] buffer = new byte[1024];
+                int len;
+                while ((len = gzipStream.read(buffer)) > 0) {
+                    out.write(buffer, 0, len);
+                }
+                this.decompressedBody = out.toByteArray();
+            } catch (IOException e) {
+                throw new NotGzipFormatException("Request is not in GZIP format", e);
+            }
+        }
+    }
+
+    @Override
+    public ServletInputStream getInputStream() {
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(decompressedBody);
+
+        return new ServletInputStream() {
+            @Override public int read() { return byteArrayInputStream.read(); }
+            @Override public boolean isFinished() { return byteArrayInputStream.available() == 0; }
+            @Override public boolean isReady() { return true; }
+            @Override public void setReadListener(ReadListener listener) {}
+        };
+    }
+
+    @Override
+    public BufferedReader getReader() {
+        return new BufferedReader(new InputStreamReader(getInputStream()));
+    }
+}
+
+//--------------------------------------------------------------------
+
+//--------------------------------------------------------------------
+
+//--------------------------------------------------------------------
