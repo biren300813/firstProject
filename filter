@@ -730,24 +730,29 @@ private byte[] unwrapJsonStringIfNeeded(byte[] bodyBytes) {
     try {
         String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8).trim();
 
-        // Only proceed if it looks like a JSON-escaped string (e.g., starts/ends with quotes)
-        if (bodyStr.startsWith("\"") && bodyStr.endsWith("\"") && bodyStr.contains("\\\"")) {
-            // Convert escaped string to raw string
-            String unescapedJsonString = mapper.readValue(bodyStr, String.class);
+        // Try to parse the request into a Map<String, Object>
+        Map<String, Object> json = mapper.readValue(bodyStr, new TypeReference<>() {});
 
-            // Extra guard: only try to parse if it's now valid JSON (starts with '{')
-            if (unescapedJsonString.trim().startsWith("{") && unescapedJsonString.trim().endsWith("}")) {
-                Map<String, Object> json = mapper.readValue(unescapedJsonString, new TypeReference<>() {});
-                return mapper.writeValueAsBytes(json);
-            } else {
-                System.out.println("⚠️ Unescaped string is not a valid JSON object. Skipping unwrap.");
+        // Check if variables is a String, and if so, convert it
+        Object rawVariables = json.get("variables");
+        if (rawVariables instanceof String rawVarStr) {
+            try {
+                Map<String, Object> parsedVars = mapper.readValue(rawVarStr, new TypeReference<>() {});
+                json.put("variables", parsedVars);
+                System.out.println("✅ Converted stringified variables to Map");
+            } catch (Exception e) {
+                System.out.println("⚠️ 'variables' field was a string, but could not be parsed: " + e.getMessage());
             }
         }
+
+        return mapper.writeValueAsBytes(json);
+
     } catch (Exception e) {
-        System.out.println("⚠️ Failed to unwrap or parse JSON string: " + e.getMessage());
+        System.out.println("⚠️ Failed to parse body into JSON object: " + e.getMessage());
+        return bodyBytes;
     }
-    return bodyBytes;
 }
+
 
 //--------------------------------------------------------------------
 
