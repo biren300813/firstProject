@@ -650,7 +650,78 @@ class GZIPHttpServletRequestWrapper extends HttpServletRequestWrapper {
 }
 
 //--------------------------------------------------------------------
+@Component
+public class SmartBodyWrappingFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        byte[] originalBody = readBytes(httpRequest.getInputStream());
+
+        byte[] finalBody;
+        try {
+            finalBody = tryUnzip(originalBody);
+            System.out.println("✅ GZIP request detected and decompressed.");
+        } catch (IOException e) {
+            finalBody = originalBody;
+            System.out.println("⚠️ Not GZIP, using original body.");
+        }
+
+        HttpServletRequest wrapped = new StaticBodyRequestWrapper(httpRequest, finalBody);
+        chain.doFilter(wrapped, response);
+    }
+
+    private byte[] readBytes(InputStream in) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] tmp = new byte[1024];
+        int len;
+        while ((len = in.read(tmp)) != -1) {
+            buffer.write(tmp, 0, len);
+        }
+        return buffer.toByteArray();
+    }
+
+    private byte[] tryUnzip(byte[] data) throws IOException {
+        try (GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(data));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            byte[] tmp = new byte[1024];
+            int len;
+            while ((len = gis.read(tmp)) > 0) {
+                out.write(tmp, 0, len);
+            }
+            return out.toByteArray();
+        }
+    }
+}
 
 //--------------------------------------------------------------------
+class StaticBodyRequestWrapper extends HttpServletRequestWrapper {
+
+    private final byte[] body;
+
+    public StaticBodyRequestWrapper(HttpServletRequest request, byte[] body) {
+        super(request);
+        this.body = body;
+    }
+
+    @Override
+    public ServletInputStream getInputStream() {
+        ByteArrayInputStream in = new ByteArrayInputStream(body);
+        return new ServletInputStream() {
+            @Override public int read() { return in.read(); }
+            @Override public boolean isFinished() { return in.available() == 0; }
+            @Override public boolean isReady() { return true; }
+            @Override public void setReadListener(ReadListener readListener) {}
+        };
+    }
+
+    @Override
+    public BufferedReader getReader() {
+        return new BufferedReader(new InputStreamReader(getInputStream()));
+    }
+}
 
 //--------------------------------------------------------------------
