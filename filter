@@ -728,21 +728,27 @@ class StaticBodyRequestWrapper extends HttpServletRequestWrapper {
 private byte[] unwrapJsonStringIfNeeded(byte[] bodyBytes) {
     ObjectMapper mapper = new ObjectMapper();
     try {
-        String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8);
+        String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8).trim();
 
-        // Detect if it's a raw JSON string: starts and ends with quotes, contains escaped quotes
-        if (bodyStr.trim().startsWith("\"") && bodyStr.contains("\\\"")) {
-            // Unescape the raw string
-            String unescaped = mapper.readValue(bodyStr, String.class); // turn into normal JSON
-            Map<String, Object> json = mapper.readValue(unescaped, new TypeReference<>() {});
-            return mapper.writeValueAsBytes(json); // re-serialize to clean JSON
+        // Only proceed if it looks like a JSON-escaped string (e.g., starts/ends with quotes)
+        if (bodyStr.startsWith("\"") && bodyStr.endsWith("\"") && bodyStr.contains("\\\"")) {
+            // Convert escaped string to raw string
+            String unescapedJsonString = mapper.readValue(bodyStr, String.class);
+
+            // Extra guard: only try to parse if it's now valid JSON (starts with '{')
+            if (unescapedJsonString.trim().startsWith("{") && unescapedJsonString.trim().endsWith("}")) {
+                Map<String, Object> json = mapper.readValue(unescapedJsonString, new TypeReference<>() {});
+                return mapper.writeValueAsBytes(json);
+            } else {
+                System.out.println("⚠️ Unescaped string is not a valid JSON object. Skipping unwrap.");
+            }
         }
     } catch (Exception e) {
-        System.out.println("⚠️ Failed to unwrap quoted JSON: " + e.getMessage());
-        // If anything fails, return original bytes
+        System.out.println("⚠️ Failed to unwrap or parse JSON string: " + e.getMessage());
     }
     return bodyBytes;
 }
+
 //--------------------------------------------------------------------
 
 //--------------------------------------------------------------------
