@@ -17,3 +17,19 @@
     </script>
   </body>
 </html>
+
+//----------------
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class CorsConfig implements WebMvcConfigurer {
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/custom-resolver/graphql") // 👈 matches your endpoint
+                .allowedOrigins("https://studio.apollographql.com")
+                .allowedMethods("GET", "POST", "OPTIONS")
+                .allowCredentials(false);
+    }
+}
