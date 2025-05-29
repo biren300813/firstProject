@@ -501,6 +501,42 @@ public class TimestampParserUtil {
 }
 
 //------------------------------------------
+Updated...
+public static final GraphQLScalarType TIME_MICROS = GraphQLScalarType.newScalar()
+    .name("TimeMicros")
+    .description("Custom scalar for Timestamp representing time in microseconds")
+    .coercing(new Coercing<Timestamp, String>() {
+        @Override
+        public String serialize(Object dataFetcherResult) {
+            if (dataFetcherResult instanceof Timestamp ts) {
+                return TIME_MICROS_FORMAT.format(ts.toLocalDateTime().toLocalTime());
+            } else if (dataFetcherResult instanceof LocalTime time) {
+                return TIME_MICROS_FORMAT.format(time);
+            } else {
+                throw new IllegalArgumentException("Expected Timestamp or LocalTime");
+            }
+        }
+
+        @Override
+        public Timestamp parseValue(Object input) {
+            if (input == null || input.toString().isBlank()) return null;
+            try {
+                long micros = Long.parseLong(input.toString());
+                return new Timestamp(micros / 1_000); // micros to millis
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid microsecond timestamp: " + input);
+            }
+        }
+
+        @Override
+        public Timestamp parseLiteral(Object input) {
+            if (input instanceof StringValue sv) {
+                return parseValue(sv.getValue());
+            }
+            throw new IllegalArgumentException("Expected a StringValue.");
+        }
+    })
+    .build();
 
 //------------------------------------------
 
