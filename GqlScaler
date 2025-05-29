@@ -1,0 +1,436 @@
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.graphql.execution.RuntimeWiringConfigurer;
+
+@Configuration
+public class GraphQLScalarConfig {
+
+    @Bean
+    public RuntimeWiringConfigurer addCustomScalars() {
+        return wiringBuilder -> wiringBuilder
+            .scalar(DateScalar.DATE)
+            .scalar(TimestampScalar.TIMESTAMP)
+            .scalar(TimeMicrosScalar.TIME_MICROS)
+            .scalar(TimestampMicrosScalar.TIMESTAMP_MICROS)
+            .scalar(LongScalar.LONG)
+            .scalar(DecimalScalar.DECIMAL);
+    }
+}
+
+//------------------------------------------
+import graphql.language.StringValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class DateScalar {
+
+    private static final SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+
+    public static final GraphQLScalarType DATE = GraphQLScalarType.newScalar()
+            .name("Date")
+            .description("Custom scalar for java.util.Date")
+            .coercing(new Coercing<Date, String>() {
+                @Override
+                public String serialize(Object dataFetcherResult) {
+                    return formatter.format((Date) dataFetcherResult);
+                }
+
+                @Override
+                public Date parseValue(Object input) {
+                    try {
+                        return formatter.parse(input.toString());
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException("Invalid Date: " + input);
+                    }
+                }
+
+                @Override
+                public Date parseLiteral(Object input) {
+                    if (input instanceof StringValue) {
+                        try {
+                            return formatter.parse(((StringValue) input).getValue());
+                        } catch (Exception e) {
+                            throw new IllegalArgumentException("Invalid Date literal: " + input);
+                        }
+                    }
+                    throw new IllegalArgumentException("Expected a StringValue.");
+                }
+            })
+            .build();
+}
+//------------------------------------------
+import graphql.language.StringValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+
+public class TimestampScalar {
+
+    public static final GraphQLScalarType TIMESTAMP = GraphQLScalarType.newScalar()
+            .name("Timestamp")
+            .description("Custom scalar for java.time.Instant")
+            .coercing(new Coercing<Instant, String>() {
+                @Override
+                public String serialize(Object dataFetcherResult) {
+                    return ((Instant) dataFetcherResult).toString();
+                }
+
+                @Override
+                public Instant parseValue(Object input) {
+                    try {
+                        return Instant.parse(input.toString());
+                    } catch (DateTimeParseException e) {
+                        throw new IllegalArgumentException("Invalid timestamp: " + input);
+                    }
+                }
+
+                @Override
+                public Instant parseLiteral(Object input) {
+                    if (input instanceof StringValue) {
+                        try {
+                            return Instant.parse(((StringValue) input).getValue());
+                        } catch (DateTimeParseException e) {
+                            throw new IllegalArgumentException("Invalid timestamp literal: " + input);
+                        }
+                    }
+                    throw new IllegalArgumentException("Expected a StringValue.");
+                }
+            })
+            .build();
+}
+
+//------------------------------------------
+import graphql.language.IntValue;
+import graphql.language.StringValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+
+public class TimeMicrosScalar {
+
+    public static final GraphQLScalarType TIME_MICROS = GraphQLScalarType.newScalar()
+            .name("TimeMicros")
+            .description("Custom scalar for LocalTime in microseconds")
+            .coercing(new Coercing<LocalTime, String>() {
+                private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSS");
+
+                @Override
+                public String serialize(Object dataFetcherResult) {
+                    return formatter.format((LocalTime) dataFetcherResult);
+                }
+
+                @Override
+                public LocalTime parseValue(Object input) {
+                    return LocalTime.parse(input.toString(), formatter);
+                }
+
+                @Override
+                public LocalTime parseLiteral(Object input) {
+                    if (input instanceof StringValue) {
+                        return LocalTime.parse(((StringValue) input).getValue(), formatter);
+                    }
+                    throw new IllegalArgumentException("Expected a StringValue.");
+                }
+            })
+            .build();
+}
+
+//------------------------------------------
+import graphql.language.StringValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
+public class TimestampMicrosScalar {
+
+    public static final GraphQLScalarType TIMESTAMP_MICROS = GraphQLScalarType.newScalar()
+            .name("TimestampMicros")
+            .description("Custom scalar for timestamp in microseconds as ISO string")
+            .coercing(new Coercing<Instant, String>() {
+                @Override
+                public String serialize(Object dataFetcherResult) {
+                    return ((Instant) dataFetcherResult).truncatedTo(ChronoUnit.MICROS).toString();
+                }
+
+                @Override
+                public Instant parseValue(Object input) {
+                    return Instant.parse(input.toString());
+                }
+
+                @Override
+                public Instant parseLiteral(Object input) {
+                    if (input instanceof StringValue) {
+                        return Instant.parse(((StringValue) input).getValue());
+                    }
+                    throw new IllegalArgumentException("Expected a StringValue.");
+                }
+            })
+            .build();
+}
+
+//------------------------------------------
+import graphql.language.IntValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+public class LongScalar {
+
+    public static final GraphQLScalarType LONG = GraphQLScalarType.newScalar()
+            .name("Long")
+            .description("Custom scalar for java.lang.Long")
+            .coercing(new Coercing<Long, Long>() {
+                @Override
+                public Long serialize(Object dataFetcherResult) {
+                    return ((Number) dataFetcherResult).longValue();
+                }
+
+                @Override
+                public Long parseValue(Object input) {
+                    return Long.parseLong(input.toString());
+                }
+
+                @Override
+                public Long parseLiteral(Object input) {
+                    if (input instanceof IntValue) {
+                        return ((IntValue) input).getValue().longValue();
+                    }
+                    throw new IllegalArgumentException("Expected an IntValue.");
+                }
+            })
+            .build();
+}
+
+//------------------------------------------
+import graphql.language.FloatValue;
+import graphql.language.IntValue;
+import graphql.language.StringValue;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+
+import java.math.BigDecimal;
+
+public class DecimalScalar {
+
+    public static final GraphQLScalarType DECIMAL = GraphQLScalarType.newScalar()
+            .name("Decimal")
+            .description("Custom scalar for BigDecimal")
+            .coercing(new Coercing<BigDecimal, String>() {
+                @Override
+                public String serialize(Object dataFetcherResult) {
+                    return new BigDecimal(dataFetcherResult.toString()).toPlainString();
+                }
+
+                @Override
+                public BigDecimal parseValue(Object input) {
+                    return new BigDecimal(input.toString());
+                }
+
+                @Override
+                public BigDecimal parseLiteral(Object input) {
+                    if (input instanceof FloatValue) {
+                        return ((FloatValue) input).getValue();
+                    } else if (input instanceof IntValue) {
+                        return new BigDecimal(((IntValue) input).getValue());
+                    } else if (input instanceof StringValue) {
+                        return new BigDecimal(((StringValue) input).getValue());
+                    }
+                    throw new IllegalArgumentException("Expected a numeric value.");
+                }
+            })
+            .build();
+}
+
+//------------------------------------------
+package com.example.graphql.scalar;
+
+import graphql.language.*;
+import graphql.schema.Coercing;
+import graphql.schema.GraphQLScalarType;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.graphql.execution.RuntimeWiringConfigurer;
+
+import java.math.BigDecimal;
+import java.text.SimpleDateFormat;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
+import java.util.Locale;
+
+@Configuration
+public class GraphQLScalarConfiguration {
+
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+    private static final DateTimeFormatter TIME_MICROS_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSS");
+
+    public static final GraphQLScalarType DATE = GraphQLScalarType.newScalar()
+        .name("Date")
+        .description("Custom scalar for java.util.Date")
+        .coercing(new Coercing<Date, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                return DATE_FORMAT.format((Date) dataFetcherResult);
+            }
+
+            @Override
+            public Date parseValue(Object input) {
+                try {
+                    return DATE_FORMAT.parse(input.toString());
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Invalid Date: " + input);
+                }
+            }
+
+            @Override
+            public Date parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    try {
+                        return DATE_FORMAT.parse(sv.getValue());
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException("Invalid Date literal: " + input);
+                    }
+                }
+                throw new IllegalArgumentException("Expected a StringValue.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType TIMESTAMP = GraphQLScalarType.newScalar()
+        .name("Timestamp")
+        .description("Custom scalar for java.time.Instant")
+        .coercing(new Coercing<Instant, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                return ((Instant) dataFetcherResult).toString();
+            }
+
+            @Override
+            public Instant parseValue(Object input) {
+                return Instant.parse(input.toString());
+            }
+
+            @Override
+            public Instant parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    return Instant.parse(sv.getValue());
+                }
+                throw new IllegalArgumentException("Expected a StringValue.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType TIMESTAMP_MICROS = GraphQLScalarType.newScalar()
+        .name("TimestampMicros")
+        .description("Custom scalar for timestamp with microseconds")
+        .coercing(new Coercing<Instant, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                return ((Instant) dataFetcherResult).truncatedTo(ChronoUnit.MICROS).toString();
+            }
+
+            @Override
+            public Instant parseValue(Object input) {
+                return Instant.parse(input.toString());
+            }
+
+            @Override
+            public Instant parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    return Instant.parse(sv.getValue());
+                }
+                throw new IllegalArgumentException("Expected a StringValue.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType TIME_MICROS = GraphQLScalarType.newScalar()
+        .name("TimeMicros")
+        .description("Custom scalar for LocalTime in microseconds")
+        .coercing(new Coercing<LocalTime, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                return TIME_MICROS_FORMAT.format((LocalTime) dataFetcherResult);
+            }
+
+            @Override
+            public LocalTime parseValue(Object input) {
+                return LocalTime.parse(input.toString(), TIME_MICROS_FORMAT);
+            }
+
+            @Override
+            public LocalTime parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    return LocalTime.parse(sv.getValue(), TIME_MICROS_FORMAT);
+                }
+                throw new IllegalArgumentException("Expected a StringValue.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType LONG = GraphQLScalarType.newScalar()
+        .name("Long")
+        .description("Custom scalar for java.lang.Long")
+        .coercing(new Coercing<Long, Long>() {
+            @Override
+            public Long serialize(Object dataFetcherResult) {
+                return ((Number) dataFetcherResult).longValue();
+            }
+
+            @Override
+            public Long parseValue(Object input) {
+                return Long.parseLong(input.toString());
+            }
+
+            @Override
+            public Long parseLiteral(Object input) {
+                if (input instanceof IntValue iv) {
+                    return iv.getValue().longValue();
+                }
+                throw new IllegalArgumentException("Expected an IntValue.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType DECIMAL = GraphQLScalarType.newScalar()
+        .name("Decimal")
+        .description("Custom scalar for BigDecimal")
+        .coercing(new Coercing<BigDecimal, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                return new BigDecimal(dataFetcherResult.toString()).toPlainString();
+            }
+
+            @Override
+            public BigDecimal parseValue(Object input) {
+                return new BigDecimal(input.toString());
+            }
+
+            @Override
+            public BigDecimal parseLiteral(Object input) {
+                return switch (input) {
+                    case FloatValue fv -> fv.getValue();
+                    case IntValue iv -> new BigDecimal(iv.getValue());
+                    case StringValue sv -> new BigDecimal(sv.getValue());
+                    default -> throw new IllegalArgumentException("Expected a numeric value.");
+                };
+            }
+        }).build();
+
+    @Bean
+    public RuntimeWiringConfigurer registerCustomScalars() {
+        return builder -> builder
+            .scalar(DATE)
+            .scalar(TIMESTAMP)
+            .scalar(TIMESTAMP_MICROS)
+            .scalar(TIME_MICROS)
+            .scalar(LONG)
+            .scalar(DECIMAL);
+    }
+}
+
+//------------------------------------------
