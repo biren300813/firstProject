@@ -539,6 +539,46 @@ public static final GraphQLScalarType TIME_MICROS = GraphQLScalarType.newScalar(
     .build();
 
 //------------------------------------------
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.List;
+
+public class LocalTimeParserUtil {
+
+    private static final List<DateTimeFormatter> TIME_FORMATTERS = List.of(
+        DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSS"),  // microseconds
+        DateTimeFormatter.ofPattern("HH:mm:ss.SSS"),     // milliseconds
+        DateTimeFormatter.ofPattern("HH:mm:ss")          // plain time
+    );
+
+    public static LocalTime parseLocalTime(String input) {
+        if (input == null || input.isBlank()) return null;
+
+        input = input.trim();
+
+        // Try numeric microseconds since midnight
+        if (input.matches("\\d+")) {
+            try {
+                long micros = Long.parseLong(input);
+                return LocalTime.ofNanoOfDay(micros * 1_000); // micros → nanos
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid microsecond numeric input: " + input, e);
+            }
+        }
+
+        // Try known time formats
+        for (DateTimeFormatter formatter : TIME_FORMATTERS) {
+            try {
+                return LocalTime.parse(input, formatter);
+            } catch (DateTimeParseException ignored) {
+                // try next
+            }
+        }
+
+        throw new IllegalArgumentException("Unsupported time format: " + input);
+    }
+}
 
 //------------------------------------------
 
