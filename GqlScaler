@@ -434,3 +434,34 @@ public class GraphQLScalarConfiguration {
 }
 
 //------------------------------------------
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+public class DateParserUtil {
+
+    public static Date parseFlexibleDate(String dateStr) {
+        if (dateStr == null) return null;
+
+        try {
+            if (dateStr.length() == 8) {
+                return new SimpleDateFormat("yyyyMMdd").parse(dateStr);
+            } else if (dateStr.length() == 6) {
+                return new SimpleDateFormat("yyMMdd").parse(dateStr);
+            } else {
+                throw new IllegalArgumentException("Unsupported date format: " + dateStr);
+            }
+        } catch (ParseException e) {
+            throw new IllegalArgumentException("Invalid date string: " + dateStr, e);
+        }
+    }
+}
+//------------------------------------------
+
+//------------------------------------------
+
+//------------------------------------------
+
+//------------------------------------------
+
+//------------------------------------------
