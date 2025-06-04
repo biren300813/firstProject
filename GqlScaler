@@ -581,5 +581,52 @@ public class LocalTimeParserUtil {
 }
 
 //------------------------------------------
+import graphql.schema.*;
+import graphql.language.StringValue;
+import graphql.schema.CoercingSerializeException;
+import graphql.schema.CoercingParseValueException;
+import graphql.schema.CoercingParseLiteralException;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+public class CustomScalars {
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+
+    public static final GraphQLScalarType DATE = GraphQLScalarType.newScalar()
+        .name("Date")
+        .description("Custom scalar for java.util.Date")
+        .coercing(new Coercing<Date, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                if (!(dataFetcherResult instanceof Date)) {
+                    throw new CoercingSerializeException("Expected a Date object.");
+                }
+                return DATE_FORMAT.format((Date) dataFetcherResult);
+            }
+
+            @Override
+            public Date parseValue(Object input) {
+                try {
+                    return DATE_FORMAT.parse(input.toString());
+                } catch (Exception e) {
+                    throw new CoercingParseValueException("Invalid Date format. Expected format is yyyy-MM-dd.");
+                }
+            }
+
+            @Override
+            public Date parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    try {
+                        return DATE_FORMAT.parse(sv.getValue());
+                    } catch (Exception e) {
+                        throw new CoercingParseLiteralException("Invalid Date literal. Expected format is yyyy-MM-dd.");
+                    }
+                }
+                throw new CoercingParseLiteralException("Expected a StringValue for Date.");
+            }
+        })
+        .build();
+}
 
 //------------------------------------------
