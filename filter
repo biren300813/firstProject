@@ -248,6 +248,58 @@ private Map<String, SortOrder> extractSortMap(List<?> sortList) {
     }
     return map;
 }
+// -------------------------------------------
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+public class SortEngine<T> {
+    private final Class<T> clazz;
+
+    public SortEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public Comparator<T> buildComparator(Map<String, SortOrder> sortMap) {
+        Comparator<T> combined = null;
+
+        for (Map.Entry<String, SortOrder> entry : sortMap.entrySet()) {
+            String fieldPath = entry.getKey();
+            SortOrder order = entry.getValue();
+
+            Comparator<T> comparator = Comparator.comparing(
+                (Function<T, Comparable<?>>) t -> getFieldValue(t, fieldPath),
+                Comparator.nullsLast(Comparator.naturalOrder())
+            );
+
+            if (order == SortOrder.DESC) {
+                comparator = comparator.reversed();
+            }
+
+            combined = (combined == null) ? comparator : combined.thenComparing(comparator);
+        }
+
+        return combined != null ? combined : Comparator.comparing(Object::hashCode); // fallback
+    }
+
+    @SuppressWarnings("unchecked")
+    private Comparable<?> getFieldValue(T obj, String fieldPath) {
+        try {
+            Object value = obj;
+            for (String fieldName : fieldPath.split("\\.")) {
+                if (value == null) return null;
+
+                Field field = value.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                value = field.get(value);
+            }
+            return (Comparable<?>) value;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
 
 // ---------------------------------------------
 package example.graphql.config;
