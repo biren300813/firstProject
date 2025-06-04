@@ -581,17 +581,18 @@ public class LocalTimeParserUtil {
 }
 
 //------------------------------------------
+import graphql.language.*;
 import graphql.schema.*;
-import graphql.language.StringValue;
-import graphql.schema.CoercingSerializeException;
-import graphql.schema.CoercingParseValueException;
-import graphql.schema.CoercingParseLiteralException;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 
 public class CustomScalars {
-    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+
+    private static final DateTimeFormatter TIME_MICROS_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSS");
 
     public static final GraphQLScalarType DATE = GraphQLScalarType.newScalar()
         .name("Date")
@@ -627,6 +628,174 @@ public class CustomScalars {
             }
         })
         .build();
-}
 
+    public static final GraphQLScalarType TIMESTAMP = GraphQLScalarType.newScalar()
+        .name("Timestamp")
+        .description("Custom scalar for java.time.Instant")
+        .coercing(new Coercing<Instant, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                if (!(dataFetcherResult instanceof Instant)) {
+                    throw new CoercingSerializeException("Expected an Instant object.");
+                }
+                return ((Instant) dataFetcherResult).toString();
+            }
+
+            @Override
+            public Instant parseValue(Object input) {
+                try {
+                    return Instant.parse(input.toString());
+                } catch (Exception e) {
+                    throw new CoercingParseValueException("Invalid Timestamp format. Expected ISO-8601 format.");
+                }
+            }
+
+            @Override
+            public Instant parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    try {
+                        return Instant.parse(sv.getValue());
+                    } catch (Exception e) {
+                        throw new CoercingParseLiteralException("Invalid Timestamp literal. Expected ISO-8601 format.");
+                    }
+                }
+                throw new CoercingParseLiteralException("Expected a StringValue for Timestamp.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType TIMESTAMP_MICROS = GraphQLScalarType.newScalar()
+        .name("TimestampMicros")
+        .description("Custom scalar for timestamp with microseconds")
+        .coercing(new Coercing<Instant, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                if (!(dataFetcherResult instanceof Instant)) {
+                    throw new CoercingSerializeException("Expected an Instant object.");
+                }
+                return ((Instant) dataFetcherResult).truncatedTo(ChronoUnit.MICROS).toString();
+            }
+
+            @Override
+            public Instant parseValue(Object input) {
+                try {
+                    return Instant.parse(input.toString());
+                } catch (Exception e) {
+                    throw new CoercingParseValueException("Invalid TimestampMicros format. Expected ISO-8601 format.");
+                }
+            }
+
+            @Override
+            public Instant parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    try {
+                        return Instant.parse(sv.getValue());
+                    } catch (Exception e) {
+                        throw new CoercingParseLiteralException("Invalid TimestampMicros literal. Expected ISO-8601 format.");
+                    }
+                }
+                throw new CoercingParseLiteralException("Expected a StringValue for TimestampMicros.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType TIME_MICROS = GraphQLScalarType.newScalar()
+        .name("TimeMicros")
+        .description("Custom scalar for LocalTime in microseconds")
+        .coercing(new Coercing<LocalTime, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                if (!(dataFetcherResult instanceof LocalTime)) {
+                    throw new CoercingSerializeException("Expected a LocalTime object.");
+                }
+                return TIME_MICROS_FORMAT.format((LocalTime) dataFetcherResult);
+            }
+
+            @Override
+            public LocalTime parseValue(Object input) {
+                try {
+                    return LocalTime.parse(input.toString(), TIME_MICROS_FORMAT);
+                } catch (Exception e) {
+                    throw new CoercingParseValueException("Invalid TimeMicros format. Expected format is HH:mm:ss.SSSSSS");
+                }
+            }
+
+            @Override
+            public LocalTime parseLiteral(Object input) {
+                if (input instanceof StringValue sv) {
+                    try {
+                        return LocalTime.parse(sv.getValue(), TIME_MICROS_FORMAT);
+                    } catch (Exception e) {
+                        throw new CoercingParseLiteralException("Invalid TimeMicros literal. Expected format is HH:mm:ss.SSSSSS");
+                    }
+                }
+                throw new CoercingParseLiteralException("Expected a StringValue for TimeMicros.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType LONG = GraphQLScalarType.newScalar()
+        .name("Long")
+        .description("Custom scalar for java.lang.Long")
+        .coercing(new Coercing<Long, Long>() {
+            @Override
+            public Long serialize(Object dataFetcherResult) {
+                if (!(dataFetcherResult instanceof Number)) {
+                    throw new CoercingSerializeException("Expected a numeric value.");
+                }
+                return ((Number) dataFetcherResult).longValue();
+            }
+
+            @Override
+            public Long parseValue(Object input) {
+                try {
+                    return Long.parseLong(input.toString());
+                } catch (NumberFormatException e) {
+                    throw new CoercingParseValueException("Invalid Long format. Expected a valid integer.");
+                }
+            }
+
+            @Override
+            public Long parseLiteral(Object input) {
+                if (input instanceof IntValue iv) {
+                    return iv.getValue().longValue();
+                }
+                throw new CoercingParseLiteralException("Expected an IntValue for Long.");
+            }
+        }).build();
+
+    public static final GraphQLScalarType DECIMAL = GraphQLScalarType.newScalar()
+        .name("Decimal")
+        .description("Custom scalar for BigDecimal")
+        .coercing(new Coercing<BigDecimal, String>() {
+            @Override
+            public String serialize(Object dataFetcherResult) {
+                try {
+                    return new BigDecimal(dataFetcherResult.toString()).toPlainString();
+                } catch (Exception e) {
+                    throw new CoercingSerializeException("Invalid Decimal object.");
+                }
+            }
+
+            @Override
+            public BigDecimal parseValue(Object input) {
+                try {
+                    return new BigDecimal(input.toString());
+                } catch (NumberFormatException e) {
+                    throw new CoercingParseValueException("Invalid Decimal format. Expected a numeric value.");
+                }
+            }
+
+            @Override
+            public BigDecimal parseLiteral(Object input) {
+                try {
+                    return switch (input) {
+                        case FloatValue fv -> fv.getValue();
+                        case IntValue iv -> new BigDecimal(iv.getValue());
+                        case StringValue sv -> new BigDecimal(sv.getValue());
+                        default -> throw new CoercingParseLiteralException("Expected a numeric literal.");
+                    };
+                } catch (Exception e) {
+                    throw new CoercingParseLiteralException("Invalid Decimal literal. Expected a numeric value.");
+                }
+            }
+        }).build();
+}
 //------------------------------------------
