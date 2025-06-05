@@ -807,6 +807,63 @@ private byte[] unwrapJsonStringIfNeeded(byte[] bodyBytes) {
 
 
 //--------------------------------------------------------------------
+public class SortEngine<T> {
+    private final Class<T> clazz;
+
+    public SortEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public Comparator<T> buildComparator(Map<String, SortOrder> sortMap) {
+        Comparator<T> combined = null;
+
+        for (Map.Entry<String, SortOrder> entry : sortMap.entrySet()) {
+            String fieldPath = entry.getKey(); // e.g., "desc_codeDesc"
+            SortOrder order = entry.getValue();
+
+            Comparator<T> comparator = Comparator.comparing(
+                t -> extractSortableValue(t, fieldPath),
+                Comparator.nullsLast(Comparator.naturalOrder())
+            );
+
+            if (order == SortOrder.DESC) {
+                comparator = comparator.reversed();
+            }
+
+            combined = (combined == null) ? comparator : combined.thenComparing(comparator);
+        }
+
+        return combined != null ? combined : Comparator.comparing(Object::hashCode);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Comparable<?> extractSortableValue(T obj, String fieldPath) {
+        try {
+            Object value = obj;
+            String[] fields = fieldPath.split("_");
+
+            for (String fieldName : fields) {
+                if (value == null) return null;
+
+                Field field = value.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                value = field.get(value);
+
+                // 🆕 Special case: If current value is List<?> AND we’re not at last step
+                if (value instanceof List<?> list && !list.isEmpty()) {
+                    // Use first element for now (can change to max/min/etc.)
+                    value = list.get(0);
+                }
+            }
+
+            if (value instanceof String str) return str.trim().toLowerCase(); // normalize
+            return (value instanceof Comparable<?>) ? (Comparable<?>) value : null;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
 
 //--------------------------------------------------------------------
 
