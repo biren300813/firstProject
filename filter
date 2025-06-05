@@ -875,6 +875,100 @@ private <U extends Comparable<U>> U safeCastComparable(Object value) {
 }
 
 //--------------------------------------------------------------------
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+public class SortEngine<T> {
+    private final Class<T> clazz;
+
+    public SortEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public Comparator<T> buildComparator(Map<String, SortOrder> sortMap) {
+        Comparator<T> combined = null;
+
+        for (Map.Entry<String, SortOrder> entry : sortMap.entrySet()) {
+            String fieldPath = entry.getKey(); // e.g., "desc_codeDesc"
+            SortOrder order = entry.getValue();
+
+            Comparator<T> comparator = Comparator.comparing(
+                (Function<T, Comparable<?>>) t -> extractSortableValue(t, fieldPath),
+                Comparator.nullsLast(Comparator.naturalOrder())
+            );
+
+            if (order == SortOrder.DESC) {
+                comparator = comparator.reversed();
+            }
+
+            combined = (combined == null) ? comparator : combined.thenComparing(comparator);
+        }
+
+        return combined != null ? combined : Comparator.comparing(Object::hashCode);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Comparable<?> extractSortableValue(T obj, String fieldPath) {
+        try {
+            String[] fields = fieldPath.split("_");
+            Object value = obj;
+
+            for (int i = 0; i < fields.length; i++) {
+                if (value == null) return null;
+
+                Field field = value.getClass().getDeclaredField(fields[i]);
+                field.setAccessible(true);
+                value = field.get(value);
+
+                // 🧠 If we encounter a list and there's more path to go
+                if (value instanceof List<?> list && i < fields.length - 1) {
+                    String remainingPath = String.join("_", Arrays.copyOfRange(fields, i + 1, fields.length));
+
+                    // Extract max value from nested fields in list
+                    return list.stream()
+                        .map(item -> getNestedFieldValue(item, remainingPath))
+                        .filter(Objects::nonNull)
+                        .map(v -> (Comparable<?>) normalize(v))
+                        .max(Comparator.naturalOrder()) // or .min(...) if needed
+                        .orElse(null);
+                }
+            }
+
+            return (value instanceof Comparable<?>) ? (Comparable<?>) normalize(value) : null;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Object getNestedFieldValue(Object obj, String fieldPath) {
+        try {
+            Object value = obj;
+            for (String fieldName : fieldPath.split("_")) {
+                if (value == null) return null;
+                Field field = value.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                value = field.get(value);
+            }
+            return value;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Object normalize(Object value) {
+        if (value instanceof String s) {
+            return s.trim().toLowerCase(); // consistent string sorting
+        }
+        return value;
+    }
+}
+
+//--------------------------------------------------------------------
+
+//--------------------------------------------------------------------
 
 //--------------------------------------------------------------------
 
