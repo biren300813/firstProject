@@ -1,0 +1,25 @@
+public static boolean isDateWithinRange(String effectiveDate, String cancellationDate, String startDate, String endDate) {
+        boolean isWithinRange = false;
+        
+        if (effectiveDate != null && cancellationDate != null && startDate != null && endDate != null) {
+            LocalDate effectiveDateLocal = LocalDate.parse(effectiveDate);
+            LocalDate cancellationDateLocal = LocalDate.parse(cancellationDate);
+            LocalDate startDateLocal = LocalDate.parse(startDate);
+            LocalDate endDateLocal = LocalDate.parse(endDate);
+            
+            // Check if the effective date is within the range
+            boolean isEffectiveDateWithinRange = !effectiveDateLocal.isBefore(startDateLocal) &&
+                    !effectiveDateLocal.isAfter(endDateLocal);
+            
+            // Check if the cancellation date is within the range or is far in the future
+            boolean isCancellationDateValid = cancellationDateLocal.isAfter(startDateLocal) &&
+                    (cancellationDateLocal.isBefore(endDateLocal) || cancellationDateLocal.isEqual(endDateLocal) || cancellationDateLocal.isEqual(LocalDate.parse("9999-12-31")));
+
+            // Final check to determine if the dates satisfy the conditions
+            if (isEffectiveDateWithinRange && isCancellationDateValid) {
+                isWithinRange = true;
+            }
+        }
+        
+        return isWithinRange;
+    }
