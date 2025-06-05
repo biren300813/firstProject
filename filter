@@ -846,6 +846,129 @@ public class SortEngine<T> {
 }
 
 //--------------------------------------------------------------------
+import java.lang.reflect.*;
+import java.util.*;
+import java.util.function.Function;
+
+public class RecursiveSortEngine<T> {
+    private final Class<T> clazz;
+
+    public RecursiveSortEngine(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+
+    public List<T> sort(List<T> data, Map<String, SortOrder> sortMap) {
+        // Sort the outer list
+        Comparator<T> outerComparator = buildOuterComparator(sortMap);
+        List<T> sortedOuter = data.stream().sorted(outerComparator).toList();
+
+        // Sort inner lists per item
+        for (T item : sortedOuter) {
+            sortInnerLists(item, sortMap);
+        }
+
+        return sortedOuter;
+    }
+
+    private Comparator<T> buildOuterComparator(Map<String, SortOrder> sortMap) {
+        Comparator<T> combined = null;
+
+        for (Map.Entry<String, SortOrder> entry : sortMap.entrySet()) {
+            String fieldPath = entry.getKey(); // e.g., "desc_codeDesc"
+            SortOrder order = entry.getValue();
+
+            Comparator<T> comparator = Comparator.comparing(
+                (Function<T, Comparable<?>>) t -> extractFirstListFieldValue(t, fieldPath),
+                Comparator.nullsLast(Comparator.naturalOrder())
+            );
+
+            if (order == SortOrder.DESC) {
+                comparator = comparator.reversed();
+            }
+
+            combined = (combined == null) ? comparator : combined.thenComparing(comparator);
+        }
+
+        return combined != null ? combined : Comparator.comparing(Object::hashCode);
+    }
+
+    private Comparable<?> extractFirstListFieldValue(Object obj, String fieldPath) {
+        try {
+            Object current = obj;
+            String[] parts = fieldPath.split("_");
+
+            for (String part : parts) {
+                if (current == null) return null;
+
+                Field field = current.getClass().getDeclaredField(part);
+                field.setAccessible(true);
+                current = field.get(current);
+
+                if (current instanceof List<?> list && !list.isEmpty()) {
+                    current = list.get(0);
+                }
+            }
+
+            return (current instanceof String s) ? s.trim().toLowerCase()
+                                                 : (current instanceof Comparable<?>) ? (Comparable<?>) current : null;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void sortInnerLists(Object obj, Map<String, SortOrder> sortMap) {
+        for (Map.Entry<String, SortOrder> entry : sortMap.entrySet()) {
+            String[] parts = entry.getKey().split("_");
+            if (parts.length < 2) continue;
+
+            String listFieldName = parts[0];
+            String sortFieldName = String.join("_", Arrays.copyOfRange(parts, 1, parts.length));
+            SortOrder order = entry.getValue();
+
+            try {
+                Field listField = obj.getClass().getDeclaredField(listFieldName);
+                listField.setAccessible(true);
+                Object listVal = listField.get(obj);
+
+                if (listVal instanceof List<?> list && !list.isEmpty()) {
+                    Object element = list.get(0);
+                    Comparator<Object> comparator = Comparator.comparing(
+                        inner -> extractInnerFieldValue(inner, sortFieldName),
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                    );
+                    if (order == SortOrder.DESC) {
+                        comparator = comparator.reversed();
+                    }
+
+                    List<?> sortedList = list.stream().sorted(comparator).toList();
+                    listField.set(obj, sortedList);
+                }
+
+            } catch (Exception e) {
+                // Safe to skip if field doesn't exist or access fails
+            }
+        }
+    }
+
+    private Comparable<?> extractInnerFieldValue(Object obj, String fieldPath) {
+        try {
+            Object current = obj;
+            for (String part : fieldPath.split("_")) {
+                if (current == null) return null;
+                Field field = current.getClass().getDeclaredField(part);
+                field.setAccessible(true);
+                current = field.get(current);
+            }
+
+            return (current instanceof String s) ? s.trim().toLowerCase()
+                                                 : (current instanceof Comparable<?>) ? (Comparable<?>) current : null;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
 
 //--------------------------------------------------------------------
 
