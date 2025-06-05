@@ -863,6 +863,15 @@ public class SortEngine<T> {
             return null;
         }
     }
+@SuppressWarnings("unchecked")
+private <U extends Comparable<U>> U safeCastComparable(Object value) {
+    try {
+        return (U) value;
+    } catch (ClassCastException e) {
+        return null;
+    }
+}
+
 }
 
 //--------------------------------------------------------------------
