@@ -1,0 +1,53 @@
+import graphql.execution.instrumentation.Instrumentation;
+import graphql.execution.instrumentation.InstrumentationContext;
+import graphql.execution.instrumentation.SimpleInstrumentation;
+import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters;
+import graphql.language.Document;
+import graphql.language.Node;
+import graphql.language.NodeVisitorStub;
+import graphql.language.OperationDefinition;
+import graphql.util.TraversalControl;
+import graphql.util.TraverserContext;
+import graphql.util.TreeTransformerUtil;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.graphql.execution.GraphQlSource;
+import org.springframework.graphql.execution.GraphQlSourceBuilderCustomizer;
+
+@Configuration
+public class GraphQlConfig {
+
+    @Bean
+    public GraphQlSourceBuilderCustomizer documentTransformerCustomizer() {
+        return builder -> builder.configureGraphQl(graphQlBuilder -> {
+            graphQlBuilder.instrumentation(new PayerApiStrippingInstrumentation());
+        });
+    }
+
+    public static class PayerApiStrippingInstrumentation extends SimpleInstrumentation {
+        @Override
+        public InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
+            Document document = parameters.getExecutionInput().getDocument();
+
+            Document cleaned = (Document) new graphql.util.NodeTraverser().depthFirst(
+                new NodeVisitorStub() {
+                    @Override
+                    public TraversalControl visitOperationDefinition(OperationDefinition node, TraverserContext<Node> context) {
+                        String newName = removePayerApiPrefix(node.getName());
+                        OperationDefinition newNode = node.transform(builder -> builder.name(newName));
+                        return TreeTransformerUtil.changeNode(context, newNode);
+                    }
+                },
+                document
+            );
+
+            parameters.getExecutionInput().transform(builder -> builder.document(cleaned));
+            return super.beginExecuteOperation(parameters);
+        }
+
+        private String removePayerApiPrefix(String name) {
+            if (name == null) return null;
+            return name.replaceFirst("^PayerAPI", "");
+        }
+    }
+}
