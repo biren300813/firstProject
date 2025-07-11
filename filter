@@ -1029,13 +1029,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.graphql.server.WebGraphQLInterceptor;
 import org.springframework.graphql.server.WebGraphQlRequest;
 import org.springframework.graphql.server.WebGraphQlResponse;
+import org.springframework.http.HttpHeaders;
 import reactor.core.publisher.Mono;
+
+import java.net.URI;
+import java.util.Locale;
+import java.util.Map;
 
 public class LoggingGraphQlInterceptor implements WebGraphQLInterceptor {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingGraphQlInterceptor.class);
     private static final String LOG_INTERCEPTOR = "log-interceptor";
-    private static final String PAYER_API_PREFIX = "PayerAPI";
 
     @Override
     public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
@@ -1049,31 +1053,25 @@ public class LoggingGraphQlInterceptor implements WebGraphQLInterceptor {
             log.info("GraphQL Request Variables: {}", request.getVariables());
         }
 
-        WebGraphQlRequest wrappedRequest = new WebGraphQlRequestWrapper(request, cleanedDocument);
-        return chain.next(wrappedRequest);
+        WebGraphQlRequest wrapped = new WebGraphQlRequest() {
+            @Override public URI getUri() { return request.getUri(); }
+            @Override public HttpHeaders getHeaders() { return request.getHeaders(); }
+            @Override public String getId() { return request.getId(); }
+            @Override public Locale getLocale() { return request.getLocale(); }
+            @Override public String getDocument() { return cleanedDocument; }
+            @Override public String getOperationName() { return request.getOperationName(); }
+            @Override public Map<String, Object> getVariables() { return request.getVariables(); }
+            @Override public Map<String, Object> getExtensions() { return request.getExtensions(); }
+        };
+
+        return chain.next(wrapped);
     }
 
     private String removePayerApiPrefix(String document) {
         return document.replaceAll("\\bPayerAPI(\\w+)", "$1");
     }
-
-    private static class WebGraphQlRequestWrapper extends WebGraphQlRequest {
-        private final WebGraphQlRequest delegate;
-        private final String modifiedDocument;
-
-        public WebGraphQlRequestWrapper(WebGraphQlRequest delegate, String modifiedDocument) {
-            super(delegate.getUri(), delegate.getHeaders(), delegate.getId(), delegate.getLocale(),
-                  modifiedDocument, delegate.getOperationName(), delegate.getVariables(), delegate.getExtensions());
-            this.delegate = delegate;
-            this.modifiedDocument = modifiedDocument;
-        }
-
-        @Override
-        public String getDocument() {
-            return modifiedDocument;
-        }
-    }
 }
+
 
 //--------------------------------------------------------------------
 
