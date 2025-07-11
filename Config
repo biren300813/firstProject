@@ -1,53 +1,100 @@
-import graphql.execution.instrumentation.Instrumentation;
-import graphql.execution.instrumentation.InstrumentationContext;
-import graphql.execution.instrumentation.SimpleInstrumentation;
-import graphql.execution.instrumentation.parameters.InstrumentationExecuteOperationParameters;
-import graphql.language.Document;
-import graphql.language.Node;
-import graphql.language.NodeVisitorStub;
-import graphql.language.OperationDefinition;
-import graphql.util.TraversalControl;
-import graphql.util.TraverserContext;
-import graphql.util.TreeTransformerUtil;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.graphql.execution.GraphQlSource;
-import org.springframework.graphql.execution.GraphQlSourceBuilderCustomizer;
+package com.example.filter;
 
-@Configuration
-public class GraphQlConfig {
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.stereotype.Component;
 
-    @Bean
-    public GraphQlSourceBuilderCustomizer documentTransformerCustomizer() {
-        return builder -> builder.configureGraphQl(graphQlBuilder -> {
-            graphQlBuilder.instrumentation(new PayerApiStrippingInstrumentation());
-        });
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.zip.GZIPInputStream;
+
+@Component
+public class SmartBodyWrappingFilter implements Filter {
+
+    private static final ObjectMapper mapper = new ObjectMapper();
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        byte[] originalBody = readBytes(httpRequest.getInputStream());
+
+        if (originalBody.length == 0 || new String(originalBody, StandardCharsets.UTF_8).trim().isEmpty()) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        byte[] finalBody;
+        try {
+            finalBody = tryUnzip(originalBody);
+        } catch (IOException e) {
+            finalBody = originalBody;
+        }
+
+        finalBody = unwrapAndCleanJsonIfNeeded(finalBody);
+
+        HttpServletRequest wrapped = new StaticBodyRequestWrapper(httpRequest, finalBody);
+        chain.doFilter(wrapped, response);
     }
 
-    public static class PayerApiStrippingInstrumentation extends SimpleInstrumentation {
-        @Override
-        public InstrumentationContext<ExecutionResult> beginExecuteOperation(InstrumentationExecuteOperationParameters parameters) {
-            Document document = parameters.getExecutionInput().getDocument();
-
-            Document cleaned = (Document) new graphql.util.NodeTraverser().depthFirst(
-                new NodeVisitorStub() {
-                    @Override
-                    public TraversalControl visitOperationDefinition(OperationDefinition node, TraverserContext<Node> context) {
-                        String newName = removePayerApiPrefix(node.getName());
-                        OperationDefinition newNode = node.transform(builder -> builder.name(newName));
-                        return TreeTransformerUtil.changeNode(context, newNode);
-                    }
-                },
-                document
-            );
-
-            parameters.getExecutionInput().transform(builder -> builder.document(cleaned));
-            return super.beginExecuteOperation(parameters);
+    private byte[] readBytes(InputStream in) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] tmp = new byte[1024];
+        int len;
+        while ((len = in.read(tmp)) != -1) {
+            buffer.write(tmp, 0, len);
         }
+        return buffer.toByteArray();
+    }
 
-        private String removePayerApiPrefix(String name) {
-            if (name == null) return null;
-            return name.replaceFirst("^PayerAPI", "");
+    private byte[] tryUnzip(byte[] data) throws IOException {
+        try (GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(data));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            byte[] tmp = new byte[1024];
+            int len;
+            while ((len = gis.read(tmp)) > 0) {
+                out.write(tmp, 0, len);
+            }
+            return out.toByteArray();
         }
+    }
+
+    private byte[] unwrapAndCleanJsonIfNeeded(byte[] bodyBytes) {
+        try {
+            String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8).trim();
+            Map<String, Object> json = mapper.readValue(bodyStr, new TypeReference<>() {});
+
+            // Remove PayerAPI prefix from "query"
+            if (json.containsKey("query") && json.get("query") instanceof String queryStr) {
+                queryStr = removePayerApiPrefix(queryStr);
+                json.put("query", queryStr);
+            }
+
+            // Convert stringified "variables" to Map if needed
+            Object rawVariables = json.get("variables");
+            if (rawVariables instanceof String rawVarStr) {
+                try {
+                    Map<String, Object> parsedVars = mapper.readValue(rawVarStr, new TypeReference<>() {});
+                    json.put("variables", parsedVars);
+                    System.out.println("Converted stringified variables to Map");
+                } catch (Exception e) {
+                    System.out.println("variables field was a string, but could not be parsed: " + e.getMessage());
+                }
+            }
+
+            return mapper.writeValueAsBytes(json);
+        } catch (Exception e) {
+            System.out.println("Failed to parse/transform JSON body: " + e.getMessage());
+            return bodyBytes;
+        }
+    }
+
+    private String removePayerApiPrefix(String input) {
+        return input.replaceAll("\\bPayerAPI(\\w+)", "$1");
     }
 }
