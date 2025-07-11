@@ -1024,6 +1024,56 @@ public class LoggingGraphQlInterceptor implements WebGraphQLInterceptor {
 }
 
 //--------------------------------------------------------------------
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.graphql.server.WebGraphQLInterceptor;
+import org.springframework.graphql.server.WebGraphQlRequest;
+import org.springframework.graphql.server.WebGraphQlResponse;
+import reactor.core.publisher.Mono;
+
+public class LoggingGraphQlInterceptor implements WebGraphQLInterceptor {
+
+    private static final Logger log = LoggerFactory.getLogger(LoggingGraphQlInterceptor.class);
+    private static final String LOG_INTERCEPTOR = "log-interceptor";
+    private static final String PAYER_API_PREFIX = "PayerAPI";
+
+    @Override
+    public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest request, Chain chain) {
+        String logInterceptorHeader = request.getHeaders().getFirst(LOG_INTERCEPTOR);
+        String originalDocument = request.getDocument();
+        String cleanedDocument = removePayerApiPrefix(originalDocument);
+
+        if ("true".equalsIgnoreCase(logInterceptorHeader)) {
+            log.info("Original GraphQL Request Document:\n{}", originalDocument);
+            log.info("Cleaned GraphQL Request Document:\n{}", cleanedDocument);
+            log.info("GraphQL Request Variables: {}", request.getVariables());
+        }
+
+        WebGraphQlRequest wrappedRequest = new WebGraphQlRequestWrapper(request, cleanedDocument);
+        return chain.next(wrappedRequest);
+    }
+
+    private String removePayerApiPrefix(String document) {
+        return document.replaceAll("\\bPayerAPI(\\w+)", "$1");
+    }
+
+    private static class WebGraphQlRequestWrapper extends WebGraphQlRequest {
+        private final WebGraphQlRequest delegate;
+        private final String modifiedDocument;
+
+        public WebGraphQlRequestWrapper(WebGraphQlRequest delegate, String modifiedDocument) {
+            super(delegate.getUri(), delegate.getHeaders(), delegate.getId(), delegate.getLocale(),
+                  modifiedDocument, delegate.getOperationName(), delegate.getVariables(), delegate.getExtensions());
+            this.delegate = delegate;
+            this.modifiedDocument = modifiedDocument;
+        }
+
+        @Override
+        public String getDocument() {
+            return modifiedDocument;
+        }
+    }
+}
 
 //--------------------------------------------------------------------
 
