@@ -225,3 +225,243 @@ public class GraphqlHttpAuditWebFilter implements WebFilter {
 ----------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+// AuditEventEmitter.java
+package com.example.logging;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class AuditEventEmitter {
+    private static final Logger log = LoggerFactory.getLogger("SPLUNK.AUDIT");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private AuditEventEmitter() {}
+
+    public static void emit(String appName,
+                            String cid,
+                            String consumer,
+                            int statusCode,
+                            String method,
+                            String path,
+                            Instant start,
+                            Instant end,
+                            long durationMillis,
+                            Integer requestSizeBytes,
+                            Integer responseSizeBytes) {
+        try {
+            Map<String, Object> event = new LinkedHashMap<>();
+            event.put("appName", appName);
+            event.put("CID", cid);
+            event.put("Consumer", consumer);
+            event.put("StatusCode", statusCode);
+            event.put("HTTPMethod", method);
+            event.put("PATH", path);
+            event.put("StartTimeStamp", start.toString());
+            event.put("EndTimeStamp", end.toString());
+            event.put("ResponseTimeMillis", durationMillis);
+            if (requestSizeBytes != null)  event.put("requestSizeBytes", requestSizeBytes);
+            if (responseSizeBytes != null) event.put("responseSizeBytes", responseSizeBytes);
+
+            log.info(MAPPER.writeValueAsString(event));
+        } catch (Exception e) {
+            LoggerFactory.getLogger(AuditEventEmitter.class)
+                         .warn("Failed to serialize audit event", e);
+        }
+    }
+}
+
+----------------------------------------------------------------------------------------
+// HttpAuditAutoConfiguration.java
+package com.example.logging;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class HttpAuditAutoConfiguration {
+
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    public FilterRegistrationBean<ServletHttpAuditFilter> servletAuditFilter(
+            @Value("${spring.application.name:app}") String appName) {
+
+        FilterRegistrationBean<ServletHttpAuditFilter> reg = new FilterRegistrationBean<>();
+        reg.setFilter(new ServletHttpAuditFilter(appName));
+        reg.setOrder(Integer.MIN_VALUE); // first
+        reg.addUrlPatterns("/*");        // or "/graphql" if you want narrower
+        return reg;
+    }
+
+    @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
+    public WebfluxHttpAuditFilter webfluxAuditFilter(
+            @Value("${spring.application.name:app}") String appName) {
+        return new WebfluxHttpAuditFilter(appName);
+    }
+}
+
+----------------------------------------------------------------------------------------
+// ServletHttpAuditFilter.java
+package com.example.logging;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.MDC;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+public class ServletHttpAuditFilter extends OncePerRequestFilter {
+
+    private final String appName;
+
+    public ServletHttpAuditFilter(String appName) {
+        this.appName = appName;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain)
+            throws ServletException, IOException {
+
+        final String cid = Optional.ofNullable(request.getHeader("x-correlation-id"))
+                .filter(s -> !s.isBlank())
+                .orElse(UUID.randomUUID().toString());
+        final String consumer = Optional.ofNullable(request.getHeader("x-consumer"))
+                .orElse("unknown");
+
+        final Instant start = Instant.now();
+        final long startMs = System.currentTimeMillis();
+
+        MDC.put("requestId", cid);
+        MDC.put("app", appName);
+
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            final long endMs = System.currentTimeMillis();
+            final Instant end = Instant.ofEpochMilli(endMs);
+            final long duration = endMs - startMs;
+
+            // If you want sizes, switch to ContentCachingRequestWrapper/ResponseWrapper
+            Integer reqSize = null;     // request.getContentLength() may be -1
+            Integer respSize = null;    // not reliably available in servlet without caching
+
+            AuditEventEmitter.emit(
+                    appName,
+                    cid,
+                    consumer,
+                    response.getStatus(),
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    start,
+                    end,
+                    duration,
+                    reqSize,
+                    respSize
+            );
+            MDC.clear();
+        }
+    }
+}
+
+----------------------------------------------------------------------------------------
+// WebfluxHttpAuditFilter.java
+package com.example.logging;
+
+import org.slf4j.MDC;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class WebfluxHttpAuditFilter implements WebFilter {
+
+    private final String appName;
+
+    public WebfluxHttpAuditFilter(String appName) {
+        this.appName = appName;
+    }
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        final var req = exchange.getRequest();
+
+        final String cid = Optional.ofNullable(req.getHeaders().getFirst("x-correlation-id"))
+                .filter(s -> !s.isBlank())
+                .orElse(UUID.randomUUID().toString());
+        final String consumer = Optional.ofNullable(req.getHeaders().getFirst("x-consumer"))
+                .orElse("unknown");
+
+        final Instant start = Instant.now();
+        final long startMs = System.currentTimeMillis();
+
+        MDC.put("requestId", cid);
+        MDC.put("app", appName);
+
+        return chain.filter(exchange)
+                .doOnSuccess(v -> emit(exchange, start, startMs, cid, consumer))
+                .doOnError(e -> emit(exchange, start, startMs, cid, consumer))
+                .doFinally(sig -> MDC.clear());
+    }
+
+    private void emit(ServerWebExchange exchange, Instant start, long startMs, String cid, String consumer) {
+        final var req = exchange.getRequest();
+        final var res = exchange.getResponse();
+
+        long endMs = System.currentTimeMillis();
+        long duration = endMs - startMs;
+        Instant end = Instant.ofEpochMilli(endMs);
+
+        String method = req.getMethodValue();
+        String path = req.getURI().getRawPath();
+        HttpStatus status = res.getStatusCode();
+        int code = status != null ? status.value() : 200;
+
+        Integer reqSize = null;     // request body size requires buffering
+        Integer respSize = null;    // response body size requires decorating
+
+        AuditEventEmitter.emit(
+                appName,
+                cid,
+                consumer,
+                code,
+                method,
+                path,
+                start,
+                end,
+                duration,
+                reqSize,
+                respSize
+        );
+    }
+}
+
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
