@@ -1,0 +1,140 @@
+package com.example.logging;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory; import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingRequestWrapper;
+import org.springframework.web.util.ContentCachingResponseWrapper;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+@Component
+public class GraphqlHttpAuditFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger("SPLUNK.AUDIT");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Value("${spring.application.name:app}")
+    private String appName;
+
+    // Customize these header names if your gateway sets them differently
+    private static final String HDR_CORRELATION_ID = "x-correlation-id";
+    private static final String HDR_CONSUMER       = "x-consumer";
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Narrow to GraphQL endpoint if you want only GraphQL traffic
+        // return !"/graphql".equals(request.getRequestURI());
+        return false; // log all requests; adjust to your needs
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+            throws ServletException, IOException {
+
+        ContentCachingRequestWrapper request  = new ContentCachingRequestWrapper(req);
+        ContentCachingResponseWrapper response = new ContentCachingResponseWrapper(res);
+
+        String cid = Optional.ofNullable(request.getHeader(HDR_CORRELATION_ID))
+                .filter(s -> !s.isBlank())
+                .orElse(UUID.randomUUID().toString());
+
+        String consumer = Optional.ofNullable(request.getHeader(HDR_CONSUMER))
+                .orElseGet(() -> extractConsumerFromAuth(request));
+
+        Instant start = Instant.now();
+        long startMs = System.currentTimeMillis();
+
+        // Put correlation fields into MDC so any downstream logs correlate
+        MDC.put("requestId", cid);
+        MDC.put("app", appName);
+
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            long endMs = System.currentTimeMillis();
+            Instant end = Instant.ofEpochMilli(endMs);
+            long duration = endMs - startMs;
+
+            // Safe, small summary of GraphQL body (if this is a GraphQL POST)
+            String httpMethod = request.getMethod();
+            String path = request.getRequestURI();
+            String operationName = null;
+            Integer variablesSize = null;
+
+            if ("POST".equalsIgnoreCase(httpMethod) && isJson(request)) {
+                try {
+                    String body = new String(request.getContentAsByteArray(), StandardCharsets.UTF_8);
+                    if (!body.isBlank()) {
+                        JsonNode root = MAPPER.readTree(body);
+                        if (root.hasNonNull("operationName")) {
+                            operationName = root.get("operationName").asText(null);
+                        }
+                        if (root.has("variables")) {
+                            variablesSize = root.get("variables").size();
+                        }
+                    }
+                } catch (Exception ignore) {
+                    // Don’t fail the request for logging issues
+                }
+            }
+
+            // Build one event for Splunk
+            Map<String, Object> event = new HashMap<>();
+            event.put("appName", appName);
+            event.put("CID", cid);
+            event.put("Consumer", consumer);
+            event.put("StatusCode", response.getStatus());
+            event.put("HTTPMethod", httpMethod);
+            event.put("PATH", path);
+            event.put("StartTimeStamp", start.toString());
+            event.put("EndTimeStamp", end.toString());
+            event.put("ResponseTimeMillis", duration);
+
+            // Optional GraphQL extras (kept small; avoid PII)
+            if (operationName != null) event.put("operationName", operationName);
+            if (variablesSize != null) event.put("variablesSize", variablesSize);
+
+            // If you want response size only (not body):
+            int respBytes = response.getContentSize();
+            event.put("responseSizeBytes", respBytes);
+
+            log.info(MAPPER.writeValueAsString(event));
+
+            // Important: copy cached response back to client
+            response.copyBodyToResponse();
+
+            // Clean up MDC
+            MDC.clear();
+        }
+    }
+
+    private boolean isJson(HttpServletRequest req) {
+        String ct = req.getContentType();
+        return ct != null && ct.toLowerCase().contains("application/json");
+    }
+
+    // Replace with your JWT parsing if needed
+    private String extractConsumerFromAuth(HttpServletRequest req) {
+        String auth = req.getHeader("Authorization");
+        if (auth == null || auth.isBlank()) return "unknown";
+        // e.g., "Bearer <jwt>", parse JWT client_id if you need;
+        // keep it simple to avoid heavy parsing in filter:
+        return "bearer";
+    }
+}
+
+------------------------------------------------------------------------------
