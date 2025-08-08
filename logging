@@ -138,3 +138,90 @@ public class GraphqlHttpAuditFilter extends OncePerRequestFilter {
 }
 
 ------------------------------------------------------------------------------
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory; import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import org.springframework.web.server.WebFilter;
+import org.springframework.web.server.WebFilterChain;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.*;
+
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+public class GraphqlHttpAuditWebFilter implements WebFilter {
+
+    private static final Logger log = LoggerFactory.getLogger("SPLUNK.AUDIT");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Value("${spring.application.name:app}")
+    private String appName;
+
+    private static final String HDR_CID = "x-correlation-id";
+    private static final String HDR_CONSUMER = "x-consumer";
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        final var req = exchange.getRequest();
+        final var res = exchange.getResponse();
+
+        final String cid = Optional.ofNullable(req.getHeaders().getFirst(HDR_CID))
+                .filter(s -> !s.isBlank())
+                .orElse(UUID.randomUUID().toString());
+        final String consumer = Optional.ofNullable(req.getHeaders().getFirst(HDR_CONSUMER))
+                .orElse("unknown");
+
+        final Instant start = Instant.now();
+        final long startMs = System.currentTimeMillis();
+
+        MDC.put("requestId", cid);
+        MDC.put("app", appName);
+
+        return chain.filter(exchange)
+            .doOnSuccess(v -> emitLog(exchange, start, startMs, cid, consumer))
+            .doOnError(err -> emitLog(exchange, start, startMs, cid, consumer))
+            .doFinally(sig -> MDC.clear());
+    }
+
+    private void emitLog(ServerWebExchange exchange, Instant start, long startMs, String cid, String consumer) {
+        final var req = exchange.getRequest();
+        final ServerHttpResponse res = exchange.getResponse();
+
+        long endMs = System.currentTimeMillis();
+        long duration = endMs - startMs;
+        Instant end = Instant.ofEpochMilli(endMs);
+
+        String method = req.getMethodValue();
+        String path = req.getURI().getRawPath();
+        HttpStatus status = res.getStatusCode();
+        int code = status != null ? status.value() : 200; // default if not set
+
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("appName", appName);
+        event.put("CID", cid);
+        event.put("Consumer", consumer);
+        event.put("StatusCode", code);
+        event.put("HTTPMethod", method);
+        event.put("PATH", path);
+        event.put("StartTimeStamp", start.toString());
+        event.put("EndTimeStamp", end.toString());
+        event.put("ResponseTimeMillis", duration);
+
+        try {
+            log.info(MAPPER.writeValueAsString(event));
+        } catch (Exception e) {
+            log.warn("Failed to serialize audit event", e);
+        }
+    }
+}
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
