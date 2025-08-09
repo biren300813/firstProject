@@ -1074,5 +1074,45 @@ public class LoggingGraphQlInterceptor implements WebGraphQLInterceptor {
 
 
 //--------------------------------------------------------------------
+import graphql.language.*;
+import graphql.parser.Parser;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+public final class GqlPrefixFinder {
+
+    /**
+     * Returns a list of top-level field identifiers (alias if present, else field name)
+     * whose identifier starts with the given prefix. Works for one-line or formatted queries.
+     */
+    public static List<String> extractPrefixedTopLevelFields(String gql, String prefix) {
+        if (gql == null || gql.isBlank() || prefix == null || prefix.isBlank()) return List.of();
+
+        Document doc = new Parser().parseDocument(gql);
+        List<String> out = new ArrayList<>();
+
+        for (Definition<?> def : doc.getDefinitions()) {
+            if (def instanceof OperationDefinition op) {
+                SelectionSet root = op.getSelectionSet();
+                if (root == null) continue;
+
+                for (Selection<?> sel : root.getSelections()) {
+                    if (!(sel instanceof Field f)) continue;
+
+                    String id = (f.getAlias() != null && !f.getAlias().isEmpty())
+                            ? f.getAlias()
+                            : f.getName();
+
+                    if (id != null && id.startsWith(prefix)) {
+                        out.add(id);
+                    }
+                }
+            }
+        }
+        // de-dup while preserving order
+        return out.stream().distinct().collect(Collectors.toList());
+    }
+}
 
 //--------------------------------------------------------------------
