@@ -5,7 +5,25 @@ from typing import Optional, Dict
 from your_tools import elgi_api_tool, claims_api_tool, product_api_tool
 from utils.token import get_auth_token  # token reuse utility
 from utils.logger import log_request  # logging utility
-from utils.llm_extract import extract_elg_idn_from_json  # LLM fallback extractor
+
+from vertexai.preview.language_models import TextGenerationModel  # LLM for elg-idn extraction
+import json
+
+async def extract_elg_idn_from_json(elgi_json: dict) -> str:
+    model = TextGenerationModel.from_pretrained("gemini-1.5-pro")
+
+    prompt = f"""
+You are a helpful assistant. Given this JSON response, find and return the value of the field that represents the member's 'elg-idn'.
+
+Only return the value as a string. Do not include any explanation.
+
+JSON:
+{json.dumps(elgi_json)}
+"""
+
+    response = model.predict(prompt=prompt, temperature=0.1, max_output_tokens=50)
+    return response.text.strip().strip('"')
+
 
 @tool(name="resolve_member_details", description="Resolves member info by always calling Elgi, and optionally Claims/Product APIs based on prompt")
 async def resolve_member_details(
