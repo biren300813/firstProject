@@ -1,0 +1,66 @@
+# resolve_member_details.py
+
+from mcp import tool
+from typing import Optional, Dict
+from your_tools import elgi_api_tool, claims_api_tool, product_api_tool
+from utils.token import get_auth_token  # token reuse utility
+from utils.logger import log_request  # logging utility
+from utils.llm_extract import extract_elg_idn_from_json  # LLM fallback extractor
+
+@tool(name="resolve_member_details", description="Resolves member info by always calling Elgi, and optionally Claims/Product APIs based on prompt")
+async def resolve_member_details(
+    hCode: str,
+    query: Optional[str] = ""
+) -> Dict:
+    """
+    Composite MCP tool that:
+    1. Always calls Elgi API using hCode
+    2. Extracts elg_idn from Elgi response
+    3. Optionally calls Claims and/or Product APIs based on prompt
+
+    Args:
+        hCode (str): HIPAA code for member
+        query (str): Optional natural language prompt to determine whether to fetch claims/product
+
+    Returns:
+        Dict: Aggregated response from elgi, claims, and/or product tools
+    """
+    result = {"hCode": hCode, "query": query, "tools_used": []}
+
+    try:
+        # Token reuse
+        token = await get_auth_token()
+
+        # Step 1: Call Elgi
+        elgi_response = await elgi_api_tool(hCode=hCode, token=token)
+        result["elgi"] = elgi_response
+        result["tools_used"].append("elgi_api_tool")
+
+        # Extract elg_idn (try directly, else fallback to LLM)
+        elg_idn = elgi_response.get("elg_idn")
+        if not elg_idn:
+            elg_idn = await extract_elg_idn_from_json(elgi_response)
+
+        if not elg_idn:
+            raise ValueError("elg_idn not found in Elgi response (even with LLM fallback)")
+
+        # Step 2: Conditionally call Claims and Product
+        lower_query = query.lower()
+
+        if "claims" in lower_query:
+            claims_response = await claims_api_tool(elg_idn=elg_idn, token=token)
+            result["claims"] = claims_response
+            result["tools_used"].append("claims_api_tool")
+
+        if "product" in lower_query:
+            product_response = await product_api_tool(elg_idn=elg_idn, token=token)
+            result["product"] = product_response
+            result["tools_used"].append("product_api_tool")
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    finally:
+        await log_request(tool="resolve_member_details", input={"hCode": hCode, "query": query}, output=result)
+
+    return result
