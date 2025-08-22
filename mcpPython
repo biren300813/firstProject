@@ -82,3 +82,32 @@ async def resolve_member_details(
         await log_request(tool="resolve_member_details", input={"hCode": hCode, "query": query}, output=result)
 
     return result
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+from vertexai.generative_models import GenerativeModel
+import vertexai
+import json
+
+vertexai.init(project="your-project-id", location="us-central1")
+
+async def extract_elg_idn_from_json(elgi_json: dict) -> str:
+    model = GenerativeModel("gemini-1.5-pro")
+
+    response = model.generate_content(
+        contents=[{
+            "role": "user",
+            "parts": [{"text": f"""
+You are a helpful assistant. Given this JSON response, extract the value of the member's 'elg-idn'.
+
+Only return the value as a string. No explanation.
+
+JSON:
+{json.dumps(elgi_json)}
+"""}]
+        }],
+        generation_config={
+            "temperature": 0.1,
+            "max_output_tokens": 50
+        }
+    )
+
+    return response.candidates[0].content.parts[0].text.strip().strip('"')
