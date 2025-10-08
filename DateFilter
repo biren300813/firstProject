@@ -1,0 +1,109 @@
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+public class BenefitPlanService {
+
+    private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE;
+
+    @SuppressWarnings("unchecked")
+    private List<BenefitPlan> filterBenefitPlans(Map<String, Object> responseMap, SearchInput searchInput) {
+        String startDate = searchInput.getBenefitsAndProductCriteria().getEffectiveDates().getStart();
+        String endDate   = searchInput.getBenefitsAndProductCriteria().getEffectiveDates().getEnd();
+
+        var benefitPlans = Optional.ofNullable(
+                (List<BenefitPlan>) responseMap.get(PayerProductConstants.BENEFIT_PLAN)
+        ).orElse(List.of());
+
+        List<BenefitPlan> newBenefitPlanList = new ArrayList<>();
+        if (benefitPlans.isEmpty()) return newBenefitPlanList;
+
+        for (BenefitPlan benefitPlan : benefitPlans) {
+            String pbats = benefitPlan.getPlanBenefitAccumulatorType(); // whole string e.g. "TypeA:2024-01-01:2024-06-30~TypeB:2024-07-01:2025-12-31"
+            if (pbats == null || pbats.isBlank()) {
+                // Nothing to split; keep the original plan (optional: skip instead)
+                newBenefitPlanList.add(benefitPlan);
+                continue;
+            }
+
+            String[] parts = pbats.split("~");
+            if (parts.length == 0) {
+                newBenefitPlanList.add(benefitPlan);
+                continue;
+            }
+
+            // Collect indices that are within range, preserving the original order.
+            List<Integer> inRangeIdx = new ArrayList<>();
+            for (int i = 0; i < parts.length; i++) {
+                String[] seg = parts[i].split(":");
+                if (seg.length != 3) continue; // skip malformed
+                String eff = seg[1].trim();
+                String ter = seg[2].trim();
+                if (isDateWithinRange(startDate, endDate, eff, ter)) {
+                    inRangeIdx.add(i);
+                }
+            }
+
+            if (inRangeIdx.isEmpty()) {
+                // None matched; optionally keep original plan or skip entirely.
+                // Here we skip adding anything for this benefitPlan.
+                continue;
+            }
+
+            // Determine first & last in-range positions
+            int first = inRangeIdx.get(0);
+            int last  = inRangeIdx.get(inRangeIdx.size() - 1);
+
+            int startYear = LocalDate.parse(startDate, ISO).getYear();
+            int endYear   = LocalDate.parse(endDate, ISO).getYear();
+
+            // Emit a BenefitPlan per in-range segment, adjusting the year rules.
+            for (int idxPos = 0; idxPos < inRangeIdx.size(); idxPos++) {
+                int idx = inRangeIdx.get(idxPos);
+                String[] seg = parts[idx].split(":"); // [type, eff, ter], guaranteed len==3 from above
+                String type = seg[0].trim();
+                String eff  = seg[1].trim();
+                String ter  = seg[2].trim();
+
+                // Adjust year rules
+                if (idx == first) {
+                    eff = withYear(eff, startYear);
+                }
+                if (idx == last) {
+                    ter = withYear(ter, endYear);
+                }
+
+                String adjustedSegment = String.join(":", type, eff, ter);
+
+                BenefitPlan copy = new BenefitPlan();
+                BeanUtils.copyProperties(benefitPlan, copy);
+                copy.setPlanBenefitAccumulatorType(adjustedSegment);
+                newBenefitPlanList.add(copy);
+            }
+        }
+
+        return newBenefitPlanList;
+    }
+
+    private static String withYear(String isoDate, int newYear) {
+        LocalDate d = LocalDate.parse(isoDate, DateTimeFormatter.ISO_LOCAL_DATE);
+        // Keep month/day; replace year
+        d = LocalDate.of(newYear, d.getMonthValue(), d.getDayOfMonth());
+        return d.format(DateTimeFormatter.ISO_LOCAL_DATE);
+    }
+
+    public static boolean isDateWithinRange(String startDate, String endDate, String effectiveDate, String terminationDate) {
+        if (startDate == null || endDate == null || effectiveDate == null || terminationDate == null) return false;
+
+        LocalDate start  = LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE);
+        LocalDate end    = LocalDate.parse(endDate, DateTimeFormatter.ISO_LOCAL_DATE);
+        LocalDate eff    = LocalDate.parse(effectiveDate, DateTimeFormatter.ISO_LOCAL_DATE);
+        LocalDate term   = LocalDate.parse(terminationDate, DateTimeFormatter.ISO_LOCAL_DATE);
+
+        // overlap check: [eff, term] intersects [start, end]
+        return !eff.isAfter(end) && !term.isBefore(start);
+    }
+}
