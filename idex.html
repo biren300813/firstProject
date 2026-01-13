@@ -1,0 +1,1577 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OpenAPI → Mapping Excel Builder</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#111a33; --panel2:#0f1730; --text:#e8ecff;
+      --muted:#aab3d6; --border:#243055; --accent:#6ea8fe; --good:#46d39a; --bad:#ff6b6b;
+      --chip:#1b2750;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif; background:var(--bg); color:var(--text);}
+    header{padding:18px 18px 8px; border-bottom:1px solid var(--border); background:linear-gradient(180deg, #0c1330, #0b1020);}
+    header h1{margin:0 0 6px; font-size:18px; letter-spacing:.2px;}
+    header p{margin:0; color:var(--muted); font-size:12px; line-height:1.4;}
+    .wrap{padding:14px 18px 24px; max-width:1400px; margin:0 auto;}
+    .grid{display:grid; grid-template-columns: 1.2fr 1fr; gap:14px; align-items:start;}
+    .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:12px;}
+    .card h2{margin:0 0 10px; font-size:14px;}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+    .col{display:flex; flex-direction:column; gap:6px;}
+    label{font-size:12px; color:var(--muted);}
+    textarea, input[type="text"], select{
+      width:100%; background:var(--panel2); color:var(--text);
+      border:1px solid var(--border); border-radius:10px; padding:10px; outline:none;
+    }
+    textarea{min-height:160px; resize:vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; line-height:1.35;}
+    input[type="file"]{color:var(--muted);}
+    button{
+      background:transparent; color:var(--text); border:1px solid var(--border);
+      padding:9px 12px; border-radius:10px; cursor:pointer; font-size:12px;
+    }
+    button:hover{border-color:#3a4a7a}
+    button.primary{background:rgba(110,168,254,.12); border-color:rgba(110,168,254,.45);}
+    button.danger{background:rgba(255,107,107,.10); border-color:rgba(255,107,107,.45);}
+    button.success{background:rgba(70,211,154,.10); border-color:rgba(70,211,154,.45);}
+    .hint{font-size:12px; color:var(--muted); margin-top:6px;}
+    .status{font-size:12px; margin-top:8px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:var(--panel2);}
+    .status.good{border-color:rgba(70,211,154,.35)}
+    .status.bad{border-color:rgba(255,107,107,.45)}
+    .split{display:grid; grid-template-columns: 1fr 1fr; gap:14px;}
+    .pill{display:inline-flex; gap:8px; align-items:center; padding:4px 9px; border-radius:999px; background:var(--chip); border:1px solid var(--border); font-size:12px; color:var(--muted);}
+    .pill b{color:var(--text); font-weight:600;}
+    .tree{
+      max-height:430px; overflow:auto; border-radius:12px; border:1px solid var(--border);
+      background:var(--panel2); padding:8px;
+    }
+    .node{display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px;}
+    .node:hover{background:rgba(255,255,255,.03)}
+    .node .path{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"; font-size:12px;}
+    .node .meta{margin-left:auto; display:flex; gap:8px; align-items:center;}
+    .tag{font-size:11px; color:var(--muted); padding:2px 7px; border:1px solid var(--border); border-radius:999px; background:rgba(255,255,255,.02);}
+    .tag.req{border-color:rgba(255,107,107,.45); color:#ffd0d0;}
+    .tag.type{border-color:rgba(110,168,254,.35); color:#d6e6ff;}
+    .tag.obj{border-color:rgba(170,179,214,.3)}
+    .node button{padding:6px 8px; border-radius:9px;}
+    .node .exp{width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:6px; background:rgba(255,255,255,.02); cursor:pointer; user-select:none;}
+    .node .exp.hidden{visibility:hidden}
+    .desc{font-size:11px; color:var(--muted); margin-top:2px;}
+    .editor-grid{display:grid; grid-template-columns: 1fr; gap:10px;}
+    .kv{display:grid; grid-template-columns: 1fr 1fr; gap:10px;}
+    .small{font-size:11px; color:var(--muted);}
+    .readonly{opacity:.9}
+    .table-wrap{overflow:auto; border:1px solid var(--border); border-radius:12px; background:var(--panel2);}
+    table{width:100%; border-collapse:collapse; min-width:1050px;}
+    th, td{border-bottom:1px solid rgba(36,48,85,.55); padding:8px 10px; font-size:12px; vertical-align:top;}
+    th{position:sticky; top:0; background:#0e1730; color:#cfd6ff; text-align:left; z-index:1;}
+    td code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"; font-size:11px;}
+    .actions{display:flex; gap:6px; flex-wrap:wrap;}
+    .footer-actions{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+    .right{margin-left:auto}
+    .warn{color:#ffdca8}
+    .muted{color:var(--muted)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";}
+    .inline{display:inline-flex; gap:8px; align-items:center;}
+    .kbd{font-size:11px; padding:2px 6px; border:1px solid var(--border); border-radius:6px; background:rgba(255,255,255,.02); color:var(--muted);}
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>OpenAPI → Mapping Excel Builder (Single HTML)</h1>
+  <p>
+    Paste/upload an OpenAPI (YAML/JSON), browse nested fields, add mappings (source/logic/notes), and export or update an Excel (.xlsx).
+    <span class="muted">Uses CDN libs: js-yaml + SheetJS.</span>
+  </p>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <!-- LEFT: OpenAPI input + selectors + field browser -->
+    <div class="card">
+      <h2>1) OpenAPI Input</h2>
+      <div class="split">
+        <div class="col">
+          <label for="openapiText">Paste OpenAPI (YAML or JSON)</label>
+          <textarea id="openapiText" placeholder="Paste OpenAPI 3.x YAML/JSON here..."></textarea>
+          <div class="row">
+            <button id="parseBtn" class="primary">Parse OpenAPI</button>
+            <label class="pill" title="Upload YAML/JSON file">
+              <b>Upload</b>
+              <input id="openapiFile" type="file" accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml,text/x-yaml,text/plain" style="display:none">
+              <span class="kbd">Choose file</span>
+            </label>
+            <button id="loadSampleBtn">Load Sample</button>
+          </div>
+          <div id="parseStatus" class="status">Waiting for OpenAPI spec…</div>
+          <div class="hint">
+            Tip: If you need full `$ref` resolution across multiple files/URLs, you’ll want a backend or a stronger resolver.
+            This single-file page resolves local `#/components/schemas/*` refs best-effort.
+          </div>
+        </div>
+
+        <div class="col">
+          <label>2) Endpoint / Schema Selector</label>
+          <div class="row">
+            <div class="col" style="min-width:220px; flex:1">
+              <label for="endpointSelect">Endpoint + Method</label>
+              <select id="endpointSelect" disabled>
+                <option value="">Parse first…</option>
+              </select>
+            </div>
+            <div class="col" style="min-width:160px">
+              <label for="directionSelect">Direction</label>
+              <select id="directionSelect" disabled>
+                <option value="response">Response</option>
+                <option value="request">Request</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:8px">
+            <div class="col" style="flex:1; min-width:240px">
+              <label for="schemaSelect">Schema</label>
+              <select id="schemaSelect" disabled>
+                <option value="">Select endpoint first…</option>
+              </select>
+            </div>
+            <div class="pill" id="schemaInfoPill" style="margin-top:18px">
+              <b>Schema</b> <span id="schemaInfo">—</span>
+            </div>
+          </div>
+
+          <hr style="border:0;border-top:1px solid var(--border); margin:12px 0">
+
+          <h2 style="margin-top:0">3) Field Browser</h2>
+          <div class="row" style="gap:10px">
+            <div class="col" style="flex:1; min-width:240px">
+              <label for="fieldSearch">Search fields (name/path)</label>
+              <input id="fieldSearch" type="text" placeholder="e.g., member.address.zip" disabled />
+            </div>
+            <div class="col" style="min-width:160px">
+              <label for="filterSelect">Filter</label>
+              <select id="filterSelect" disabled>
+                <option value="all">All fields</option>
+                <option value="required">Required only</option>
+                <option value="unmapped">Unmapped only</option>
+                <option value="string">Type = string</option>
+                <option value="number">Type = number/integer</option>
+                <option value="boolean">Type = boolean</option>
+                <option value="object">Type = object</option>
+                <option value="array">Type = array</option>
+              </select>
+            </div>
+            <button id="expandAllBtn" disabled>Expand all</button>
+            <button id="collapseAllBtn" disabled>Collapse all</button>
+          </div>
+
+          <div id="tree" class="tree" style="margin-top:10px">
+            <div class="small muted">Parse OpenAPI to see fields…</div>
+          </div>
+
+          <div class="hint">
+            Click <span class="kbd">Add Mapping</span> next to any field path to edit mapping details on the right.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Mapping editor + excel actions + table -->
+    <div class="card">
+      <h2>4) Mapping Editor</h2>
+
+      <div class="editor-grid">
+        <div class="kv">
+          <div class="col">
+            <label>Target Path</label>
+            <input id="targetPath" class="readonly" type="text" readonly placeholder="Select a field from the left…" />
+          </div>
+          <div class="col">
+            <label>Target Type</label>
+            <input id="targetType" class="readonly" type="text" readonly placeholder="—" />
+          </div>
+        </div>
+
+        <div class="kv">
+          <div class="col">
+            <label>Endpoint / Method</label>
+            <input id="targetEndpoint" class="readonly" type="text" readonly placeholder="—" />
+          </div>
+          <div class="col">
+            <label>Direction</label>
+            <input id="targetDirection" class="readonly" type="text" readonly placeholder="—" />
+          </div>
+        </div>
+
+        <div class="col">
+          <label for="sourceField">Source Mapping Field</label>
+          <input id="sourceField" type="text" placeholder="e.g., source.memberZip or src.address.zip" disabled />
+          <div class="hint">Optional: you can standardize source naming (e.g., JSONPath, DB column, GraphQL path).</div>
+        </div>
+
+        <div class="col">
+          <label for="mappingLogic">Mapping Logic (pseudo-code / expression)</label>
+          <textarea id="mappingLogic" placeholder="e.g., trim(src.zip); if empty then null; validate length=5" style="min-height:110px" disabled></textarea>
+        </div>
+
+        <div class="col">
+          <label for="notes">Notes</label>
+          <textarea id="notes" placeholder="Any notes, assumptions, or edge-cases…" style="min-height:90px" disabled></textarea>
+        </div>
+
+        <div class="kv">
+          <div class="col">
+            <label for="defaultValue">Default Value (optional)</label>
+            <input id="defaultValue" type="text" placeholder="e.g., 'UNKNOWN'" disabled />
+          </div>
+          <div class="col">
+            <label for="requiredToggle">Target Required?</label>
+            <select id="requiredToggle" disabled>
+              <option value="N">No</option>
+              <option value="Y">Yes</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="saveMappingBtn" class="success" disabled>Save Mapping</button>
+          <button id="clearEditorBtn" disabled>Clear</button>
+          <button id="deleteMappingBtn" class="danger" disabled>Delete Mapping</button>
+          <span class="right pill"><b>Rows</b> <span id="rowCount">0</span></span>
+        </div>
+
+        <hr style="border:0;border-top:1px solid var(--border); margin:4px 0">
+
+        <h2 style="margin:0">5) Excel Actions</h2>
+        <div class="footer-actions">
+          <button id="exportBtn" class="primary" disabled>Export New Excel (.xlsx)</button>
+
+          <label class="pill" title="Load an existing mapping Excel to update">
+            <b>Load Existing Excel</b>
+            <input id="excelFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+            <span class="kbd">Upload .xlsx</span>
+          </label>
+
+          <button id="saveUpdatesBtn" class="primary" disabled>Save Updates to Excel (.xlsx)</button>
+
+          <span id="excelStatus" class="pill right"><b>Status</b> <span class="muted" id="excelStatusText">No Excel loaded</span></span>
+        </div>
+
+        <div class="hint">
+          Unique row key used for updates:
+          <span class="mono">endpoint + method + direction + target_path</span>.
+          Loading an existing Excel merges into the current table.
+        </div>
+
+        <h2 style="margin:10px 0 8px">6) Mapping Table</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Endpoint</th>
+                <th>Method</th>
+                <th>Direction</th>
+                <th>Target Path</th>
+                <th>Type</th>
+                <th>Required</th>
+                <th>Source Field</th>
+                <th>Logic</th>
+                <th>Notes</th>
+                <th>Updated At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="mappingTbody">
+              <tr><td colspan="11" class="muted">No mappings yet…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="hint warn">
+          Safety: Export/Save always downloads a file; this page doesn’t write to your disk automatically.
+          Use “Load Existing Excel” then “Save Updates” to update a file.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CDN libs -->
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<script>
+/**
+ * Single-file OpenAPI → Mapping Excel Builder
+ * - Parses OpenAPI YAML/JSON
+ * - Best-effort $ref resolution for #/components/schemas/*
+ * - Builds a nested field tree for a chosen request/response schema
+ * - Lets user add mapping rows + export or update Excel via SheetJS
+ */
+
+/* ----------------------------- State ----------------------------- */
+const state = {
+  openapiRaw: "",
+  openapi: null,
+  endpoints: [], // [{id, path, method, op}]
+  schemaChoices: [], // [{id, name, schema, refPath}]
+  selected: {
+    endpointId: "",
+    direction: "response",
+    schemaId: ""
+  },
+  fields: [], // flattened list of field nodes {path, name, type, required, description, isLeaf, parentPath, isArray, rawSchema}
+  tree: null, // nested tree for UI render
+  mappings: new Map(), // key -> mappingRow
+  loadedExcelName: null,
+  apiName: "java-api"
+};
+
+const COLS = [
+  "api_name","endpoint","http_method","direction",
+  "target_path","target_field","target_type","target_required",
+  "source_field","mapping_logic","notes","default_value",
+  "version","updated_by","updated_at"
+];
+
+function nowIso(){
+  return new Date().toISOString();
+}
+
+function mappingKey(row){
+  return `${row.endpoint}||${row.http_method}||${row.direction}||${row.target_path}`;
+}
+
+/* ----------------------------- DOM ----------------------------- */
+const el = (id)=>document.getElementById(id);
+
+const openapiText = el("openapiText");
+const openapiFile = el("openapiFile");
+const parseBtn = el("parseBtn");
+const parseStatus = el("parseStatus");
+const loadSampleBtn = el("loadSampleBtn");
+
+const endpointSelect = el("endpointSelect");
+const directionSelect = el("directionSelect");
+const schemaSelect = el("schemaSelect");
+const schemaInfo = el("schemaInfo");
+
+const fieldSearch = el("fieldSearch");
+const filterSelect = el("filterSelect");
+const expandAllBtn = el("expandAllBtn");
+const collapseAllBtn = el("collapseAllBtn");
+const treeEl = el("tree");
+
+const targetPath = el("targetPath");
+const targetType = el("targetType");
+const targetEndpoint = el("targetEndpoint");
+const targetDirection = el("targetDirection");
+const sourceField = el("sourceField");
+const mappingLogic = el("mappingLogic");
+const notes = el("notes");
+const defaultValue = el("defaultValue");
+const requiredToggle = el("requiredToggle");
+
+const saveMappingBtn = el("saveMappingBtn");
+const clearEditorBtn = el("clearEditorBtn");
+const deleteMappingBtn = el("deleteMappingBtn");
+
+const rowCount = el("rowCount");
+const mappingTbody = el("mappingTbody");
+
+const exportBtn = el("exportBtn");
+const excelFile = el("excelFile");
+const saveUpdatesBtn = el("saveUpdatesBtn");
+const excelStatusText = el("excelStatusText");
+
+/* ----------------------------- Helpers ----------------------------- */
+function setStatus(kind, msg){
+  parseStatus.className = "status " + (kind || "");
+  parseStatus.textContent = msg;
+}
+
+function enableUI(enabled){
+  endpointSelect.disabled = !enabled;
+  directionSelect.disabled = !enabled;
+  schemaSelect.disabled = !enabled;
+  fieldSearch.disabled = !enabled;
+  filterSelect.disabled = !enabled;
+  expandAllBtn.disabled = !enabled;
+  collapseAllBtn.disabled = !enabled;
+  exportBtn.disabled = !enabled;
+  saveUpdatesBtn.disabled = !enabled;
+
+  // editor fields are enabled only when a field is selected
+}
+
+function clearTree(msg){
+  treeEl.innerHTML = `<div class="small muted">${msg}</div>`;
+}
+
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#39;");
+}
+
+function safeJsonParse(text){
+  return JSON.parse(text);
+}
+
+function safeYamlOrJsonParse(text){
+  // Try JSON first if it looks like JSON
+  const t = text.trim();
+  if (!t) throw new Error("Empty input.");
+  if (t.startsWith("{") || t.startsWith("[")) {
+    return safeJsonParse(t);
+  }
+  // YAML
+  return jsyaml.load(text);
+}
+
+function httpMethodOrder(m){
+  const o = {get:1, post:2, put:3, patch:4, delete:5, options:6, head:7, trace:8};
+  return o[m] || 99;
+}
+
+/* ----------------------------- OpenAPI parsing ----------------------------- */
+
+function collectEndpoints(openapi){
+  const paths = openapi.paths || {};
+  const endpoints = [];
+  for (const path of Object.keys(paths)){
+    const item = paths[path] || {};
+    for (const method of Object.keys(item)){
+      const lower = method.toLowerCase();
+      if (!["get","post","put","patch","delete","options","head","trace"].includes(lower)) continue;
+      const op = item[method];
+      const id = `${lower.toUpperCase()} ${path}`;
+      endpoints.push({ id, path, method: lower.toUpperCase(), op });
+    }
+  }
+  endpoints.sort((a,b)=>{
+    const p = a.path.localeCompare(b.path);
+    if (p !== 0) return p;
+    return httpMethodOrder(a.method.toLowerCase()) - httpMethodOrder(b.method.toLowerCase());
+  });
+  return endpoints;
+}
+
+function getSchemaCandidatesForEndpoint(ep, direction){
+  const op = ep.op || {};
+  const candidates = [];
+
+  if (direction === "request"){
+    // requestBody -> content -> application/json -> schema
+    const rb = op.requestBody;
+    const schema = rb?.content?.["application/json"]?.schema
+      || firstSchemaFromContent(rb?.content);
+    if (schema) {
+      candidates.push(...schemaCandidatesFromSchema(schema, "requestBody"));
+    }
+  } else {
+    // responses -> 200/201/default -> content -> application/json -> schema
+    const responses = op.responses || {};
+    const preferredCodes = ["200","201","202","default"];
+    for (const code of preferredCodes){
+      const resp = responses[code];
+      const schema = resp?.content?.["application/json"]?.schema
+        || firstSchemaFromContent(resp?.content);
+      if (schema) {
+        candidates.push(...schemaCandidatesFromSchema(schema, `responses.${code}`));
+        break;
+      }
+    }
+  }
+
+  // de-dup by id
+  const seen = new Set();
+  return candidates.filter(c=>{
+    if (seen.has(c.id)) return false;
+    seen.add(c.id); return true;
+  });
+}
+
+function firstSchemaFromContent(content){
+  if (!content) return null;
+  for (const mt of Object.keys(content)){
+    if (content[mt]?.schema) return content[mt].schema;
+  }
+  return null;
+}
+
+function schemaCandidatesFromSchema(schema, hint){
+  const list = [];
+  if (schema.$ref) {
+    list.push({ id: schema.$ref, name: refName(schema.$ref), schema, refPath: schema.$ref, hint });
+  } else if (schema.title) {
+    list.push({ id: hint + "::" + schema.title, name: schema.title, schema, refPath: null, hint });
+  } else {
+    list.push({ id: hint + "::inline", name: "InlineSchema", schema, refPath: null, hint });
+  }
+  return list;
+}
+
+function refName(ref){
+  const parts = String(ref).split("/");
+  return parts[parts.length-1] || ref;
+}
+
+// Best-effort local resolver for #/components/schemas/*
+function resolveRef(openapi, ref){
+  if (!ref || typeof ref !== "string") return null;
+  if (!ref.startsWith("#/")) return null; // only local refs in this single-file approach
+  const parts = ref.slice(2).split("/");
+  let cur = openapi;
+  for (const p of parts){
+    if (!cur || typeof cur !== "object") return null;
+    cur = cur[p];
+  }
+  return cur || null;
+}
+
+function normalizeType(schema){
+  if (!schema) return "unknown";
+  if (schema.$ref) return "ref(" + refName(schema.$ref) + ")";
+  if (schema.type) return schema.type;
+  if (schema.properties) return "object";
+  if (schema.items) return "array";
+  if (schema.allOf) return "allOf";
+  if (schema.oneOf) return "oneOf";
+  if (schema.anyOf) return "anyOf";
+  return "unknown";
+}
+
+function mergeAllOf(openapi, schema){
+  // Minimal allOf merge: combine properties + required; last wins on conflicts
+  const merged = { ...schema };
+  const all = schema.allOf;
+  if (!Array.isArray(all)) return schema;
+
+  let props = {};
+  let required = new Set(schema.required || []);
+  let description = schema.description || "";
+
+  for (const part of all){
+    const resolved = part.$ref ? resolveRef(openapi, part.$ref) : part;
+    if (!resolved) continue;
+    const r2 = mergeAllOf(openapi, resolved);
+    if (r2?.properties) props = { ...props, ...r2.properties };
+    (r2?.required || []).forEach(x=>required.add(x));
+    if (!description && r2?.description) description = r2.description;
+  }
+
+  delete merged.allOf;
+  merged.type = merged.type || "object";
+  merged.properties = { ...(merged.properties || {}), ...props };
+  merged.required = Array.from(required);
+  if (description) merged.description = description;
+  return merged;
+}
+
+function deref(openapi, schema, depth=0){
+  if (!schema || typeof schema !== "object") return schema;
+  if (depth > 25) return schema; // safety
+  if (schema.$ref){
+    const resolved = resolveRef(openapi, schema.$ref);
+    if (!resolved) return schema;
+    // keep refName as a hint but expand content
+    return deref(openapi, resolved, depth+1);
+  }
+  if (schema.allOf){
+    return deref(openapi, mergeAllOf(openapi, schema), depth+1);
+  }
+  return schema;
+}
+
+function buildFieldList(openapi, schemaRoot){
+  const fields = [];
+  const visited = new WeakSet();
+
+  function walk(schema, path, requiredSet, parentPath){
+    if (!schema || typeof schema !== "object") return;
+
+    const ds = deref(openapi, schema);
+    if (typeof ds !== "object" || ds === null) return;
+    if (visited.has(ds)) {
+      // prevent cycles
+      return;
+    }
+
+    const type = normalizeType(ds);
+    const description = ds.description || "";
+
+    // Arrays
+    if (type === "array" || ds.items) {
+      const itemSchema = ds.items ? deref(openapi, ds.items) : null;
+      const arrayPath = path ? `${path}[*]` : `[*]`;
+      const isReq = requiredSet?.has(lastSegment(path)) || false;
+
+      fields.push({
+        path: arrayPath,
+        name: lastSegment(arrayPath),
+        type: "array",
+        required: isReq,
+        description,
+        isLeaf: false,
+        parentPath,
+        isArray: true,
+        rawSchema: ds
+      });
+
+      // Drill into items
+      if (itemSchema) {
+        visited.add(ds);
+        walk(itemSchema, arrayPath, new Set(itemSchema.required || []), path || null);
+        visited.delete(ds);
+      }
+      return;
+    }
+
+    // Objects with properties
+    const props = ds.properties || null;
+    if (props && typeof props === "object") {
+      const req = new Set(ds.required || []);
+      // Create an object node (useful for browsing)
+      if (path) {
+        const isReq = requiredSet?.has(lastSegment(path)) || false;
+        fields.push({
+          path,
+          name: lastSegment(path),
+          type: "object",
+          required: isReq,
+          description,
+          isLeaf: false,
+          parentPath,
+          isArray: false,
+          rawSchema: ds
+        });
+      }
+
+      visited.add(ds);
+      for (const [propName, propSchema] of Object.entries(props)) {
+        const nextPath = path ? `${path}.${propName}` : propName;
+        walk(propSchema, nextPath, req, path || null);
+      }
+      visited.delete(ds);
+      return;
+    }
+
+    // Scalar leaf
+    const leafRequired = requiredSet?.has(lastSegment(path)) || false;
+    fields.push({
+      path,
+      name: lastSegment(path),
+      type: type || "unknown",
+      required: leafRequired,
+      description,
+      isLeaf: true,
+      parentPath,
+      isArray: false,
+      rawSchema: ds
+    });
+  }
+
+  // Root schema might be array/object/scalar
+  const root = deref(openapi, schemaRoot);
+  const rootType = normalizeType(root);
+
+  if (rootType === "object" && root.properties){
+    // top-level children
+    const req = new Set(root.required || []);
+    for (const [p, s] of Object.entries(root.properties)) {
+      walk(s, p, req, null);
+    }
+  } else if (rootType === "array" && root.items){
+    walk(root, "root", new Set(), null);
+  } else {
+    // scalar root
+    walk(root, "root", new Set(root.required || []), null);
+  }
+
+  // Ensure unique paths
+  const seen = new Set();
+  return fields.filter(f=>{
+    if (!f.path) return false;
+    if (seen.has(f.path)) return false;
+    seen.add(f.path); return true;
+  });
+}
+
+function lastSegment(path){
+  if (!path) return "";
+  // handle [*]
+  const p = path.split(".").pop();
+  return p || path;
+}
+
+function buildTree(fields){
+  const root = { name:"(root)", path:"", children:[], meta:null };
+  const byPath = new Map();
+  byPath.set("", root);
+
+  function ensureNode(path){
+    if (byPath.has(path)) return byPath.get(path);
+    const parts = path.split(".");
+    const parentPath = parts.slice(0,-1).join(".");
+    const parent = ensureNode(parentPath);
+    const node = { name: parts[parts.length-1], path, children:[], meta:null, expanded:false };
+    parent.children.push(node);
+    byPath.set(path, node);
+    return node;
+  }
+
+  // Create nodes for all paths (including intermediate)
+  for (const f of fields){
+    const p = f.path;
+    // For array paths like a[*].b, ensure split handles properly
+    // We'll treat [*] as part of segment
+    const segs = p.split(".");
+    let acc = "";
+    for (let i=0;i<segs.length;i++){
+      acc = acc ? (acc + "." + segs[i]) : segs[i];
+      ensureNode(acc);
+    }
+  }
+
+  // Attach meta to exact nodes (prefer leaf/scalar or explicit object/array nodes from fields)
+  for (const f of fields){
+    const node = byPath.get(f.path);
+    if (!node) continue;
+    // keep the most "specific" meta: if leaf, override object
+    if (!node.meta || f.isLeaf) node.meta = f;
+  }
+
+  // Sort children by name
+  function sortRec(n){
+    n.children.sort((a,b)=>a.name.localeCompare(b.name));
+    n.children.forEach(sortRec);
+  }
+  sortRec(root);
+  return root;
+}
+
+/* ----------------------------- UI rendering ----------------------------- */
+
+function renderEndpoints(){
+  endpointSelect.innerHTML = `<option value="">Select endpoint…</option>`;
+  for (const ep of state.endpoints){
+    const opt = document.createElement("option");
+    opt.value = ep.id;
+    opt.textContent = ep.id;
+    endpointSelect.appendChild(opt);
+  }
+}
+
+function renderSchemas(){
+  schemaSelect.innerHTML = `<option value="">Select schema…</option>`;
+  for (const sc of state.schemaChoices){
+    const opt = document.createElement("option");
+    opt.value = sc.id;
+    opt.textContent = sc.name + (sc.hint ? ` (${sc.hint})` : "");
+    schemaSelect.appendChild(opt);
+  }
+  schemaInfo.textContent = "—";
+}
+
+function renderTree(){
+  const q = fieldSearch.value.trim().toLowerCase();
+  const filter = filterSelect.value;
+
+  // Determine mapped paths for "unmapped" filter
+  const mappedTargetPaths = new Set();
+  for (const row of state.mappings.values()){
+    mappedTargetPaths.add(row.target_path);
+  }
+
+  function matchFilter(meta){
+    if (!meta) return true;
+    if (filter === "required") return !!meta.required;
+    if (filter === "unmapped") return !mappedTargetPaths.has(meta.path);
+    if (filter === "string") return (meta.type === "string");
+    if (filter === "number") return (meta.type === "number" || meta.type === "integer");
+    if (filter === "boolean") return (meta.type === "boolean");
+    if (filter === "object") return (meta.type === "object");
+    if (filter === "array") return (meta.type === "array");
+    return true;
+  }
+
+  function matchQuery(node){
+    if (!q) return true;
+    const p = (node.path || "").toLowerCase();
+    const n = (node.name || "").toLowerCase();
+    const d = (node.meta?.description || "").toLowerCase();
+    return p.includes(q) || n.includes(q) || d.includes(q);
+  }
+
+  function anyChildVisible(node){
+    if (node.children.length === 0) return false;
+    for (const c of node.children){
+      if (nodeVisible(c)) return true;
+    }
+    return false;
+  }
+
+  function nodeVisible(node){
+    const meta = node.meta;
+    // leaf nodes have meta by default; intermediate may not
+    const match = matchQuery(node);
+    const filt = meta ? matchFilter(meta) : true;
+    return (match && filt) || anyChildVisible(node);
+  }
+
+  function renderNode(node, depth){
+    if (!nodeVisible(node)) return "";
+
+    const hasChildren = node.children && node.children.length > 0;
+    const isRoot = node.path === "";
+
+    const meta = node.meta;
+    const type = meta?.type || (hasChildren ? "object" : "unknown");
+    const req = meta?.required ? true : false;
+    const desc = meta?.description || "";
+
+    const exp = hasChildren ? (node.expanded ? "−" : "+") : "";
+    const expClass = hasChildren ? "exp" : "exp hidden";
+    const pad = depth * 14;
+
+    // Determine if this is addable (leaf or array/object if user wants)
+    // We'll allow mapping for any node that has meta and is not the root.
+    const canMap = !!meta && !isRoot;
+
+    // Show mapped indicator
+    const isMapped = canMap && [...state.mappings.values()].some(r=>r.target_path === meta.path);
+    const mappedTag = isMapped ? `<span class="tag" title="Mapped">mapped</span>` : "";
+
+    const reqTag = req ? `<span class="tag req">required</span>` : "";
+    const typeTag = `<span class="tag type">${escapeHtml(type)}</span>`;
+
+    const addBtn = canMap
+      ? `<button data-action="add" data-path="${escapeHtml(meta.path)}">Add Mapping</button>`
+      : "";
+
+    const descHtml = desc ? `<div class="desc">${escapeHtml(desc)}</div>` : "";
+
+    return `
+      <div class="node" data-path="${escapeHtml(node.path)}" style="padding-left:${pad}px">
+        <div class="${expClass}" data-action="toggle" data-path="${escapeHtml(node.path)}">${escapeHtml(exp)}</div>
+        <div>
+          <div class="path">${escapeHtml(node.name || "(root)")}${isRoot ? "" : ""}</div>
+          ${!isRoot ? `<div class="small muted">${escapeHtml(node.path)}</div>` : ""}
+          ${descHtml}
+        </div>
+        <div class="meta">
+          ${mappedTag}
+          ${reqTag}
+          ${typeTag}
+          ${addBtn}
+        </div>
+      </div>
+      ${hasChildren && node.expanded ? node.children.map(c=>renderNode(c, depth+1)).join("") : ""}
+    `;
+  }
+
+  if (!state.tree){
+    clearTree("No schema selected…");
+    return;
+  }
+
+  treeEl.innerHTML = state.tree.children.map(n=>renderNode(n, 0)).join("") || `<div class="small muted">No fields found.</div>`;
+
+  // Attach one click handler (event delegation)
+  treeEl.onclick = (e)=>{
+    const t = e.target;
+    const action = t?.dataset?.action;
+    const path = t?.dataset?.path;
+    if (!action || path == null) return;
+
+    if (action === "toggle"){
+      const node = findNodeByPath(state.tree, path);
+      if (node){
+        node.expanded = !node.expanded;
+        renderTree();
+      }
+    } else if (action === "add"){
+      // path is meta.path; load into editor
+      openEditorForPath(path);
+    }
+  };
+}
+
+function findNodeByPath(root, path){
+  if (!root) return null;
+  if (root.path === path) return root;
+  for (const c of root.children || []){
+    const found = findNodeByPath(c, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+function expandCollapseAll(expand){
+  function walk(n){
+    if (n.children && n.children.length){
+      n.expanded = !!expand;
+      n.children.forEach(walk);
+    }
+  }
+  if (state.tree){
+    state.tree.children.forEach(walk);
+    renderTree();
+  }
+}
+
+/* ----------------------------- Mapping editor ----------------------------- */
+
+function setEditorEnabled(enabled){
+  sourceField.disabled = !enabled;
+  mappingLogic.disabled = !enabled;
+  notes.disabled = !enabled;
+  defaultValue.disabled = !enabled;
+  requiredToggle.disabled = !enabled;
+  saveMappingBtn.disabled = !enabled;
+  clearEditorBtn.disabled = !enabled;
+  deleteMappingBtn.disabled = !enabled;
+}
+
+function clearEditor(){
+  targetPath.value = "";
+  targetType.value = "";
+  targetEndpoint.value = "";
+  targetDirection.value = "";
+  sourceField.value = "";
+  mappingLogic.value = "";
+  notes.value = "";
+  defaultValue.value = "";
+  requiredToggle.value = "N";
+  setEditorEnabled(false);
+}
+
+function openEditorForPath(path){
+  const meta = state.fields.find(f=>f.path === path);
+  if (!meta) return;
+
+  const ep = state.endpoints.find(e=>e.id === state.selected.endpointId);
+  if (!ep) return;
+
+  targetPath.value = meta.path;
+  targetType.value = meta.type;
+  targetEndpoint.value = ep.path;
+  targetDirection.value = state.selected.direction;
+  requiredToggle.value = meta.required ? "Y" : "N";
+
+  // Load existing mapping if present
+  const existing = [...state.mappings.values()].find(r =>
+    r.endpoint === ep.path &&
+    r.http_method === ep.method &&
+    r.direction === state.selected.direction &&
+    r.target_path === meta.path
+  );
+
+  if (existing){
+    sourceField.value = existing.source_field || "";
+    mappingLogic.value = existing.mapping_logic || "";
+    notes.value = existing.notes || "";
+    defaultValue.value = existing.default_value || "";
+    requiredToggle.value = existing.target_required || (meta.required ? "Y" : "N");
+  } else {
+    sourceField.value = "";
+    mappingLogic.value = "";
+    notes.value = "";
+    defaultValue.value = "";
+  }
+
+  setEditorEnabled(true);
+}
+
+function saveMapping(){
+  const ep = state.endpoints.find(e=>e.id === state.selected.endpointId);
+  if (!ep) return;
+
+  const tPath = targetPath.value.trim();
+  if (!tPath){
+    alert("Select a target field first.");
+    return;
+  }
+
+  const meta = state.fields.find(f=>f.path === tPath);
+
+  const row = {
+    api_name: state.apiName,
+    endpoint: ep.path,
+    http_method: ep.method,
+    direction: state.selected.direction,
+
+    target_path: tPath,
+    target_field: lastSegment(tPath),
+    target_type: meta?.type || targetType.value || "unknown",
+    target_required: requiredToggle.value,
+
+    source_field: sourceField.value.trim(),
+    mapping_logic: mappingLogic.value.trim(),
+    notes: notes.value.trim(),
+    default_value: defaultValue.value.trim(),
+
+    version: "1",
+    updated_by: "user",
+    updated_at: nowIso()
+  };
+
+  const key = mappingKey(row);
+  state.mappings.set(key, row);
+  renderMappingsTable();
+  renderTree(); // refresh mapped indicators
+}
+
+function deleteMapping(){
+  const ep = state.endpoints.find(e=>e.id === state.selected.endpointId);
+  const tPath = targetPath.value.trim();
+  if (!ep || !tPath) return;
+
+  const row = {
+    endpoint: ep.path,
+    http_method: ep.method,
+    direction: state.selected.direction,
+    target_path: tPath
+  };
+  const key = mappingKey(row);
+
+  if (!state.mappings.has(key)){
+    alert("No mapping exists for this field.");
+    return;
+  }
+  state.mappings.delete(key);
+  renderMappingsTable();
+  renderTree();
+  // keep editor open but clear source fields
+  sourceField.value = "";
+  mappingLogic.value = "";
+  notes.value = "";
+  defaultValue.value = "";
+}
+
+function renderMappingsTable(){
+  rowCount.textContent = String(state.mappings.size);
+
+  if (state.mappings.size === 0){
+    mappingTbody.innerHTML = `<tr><td colspan="11" class="muted">No mappings yet…</td></tr>`;
+    return;
+  }
+
+  const rows = [...state.mappings.values()].sort((a,b)=>{
+    const ea = `${a.endpoint} ${a.http_method}`.localeCompare(`${b.endpoint} ${b.http_method}`);
+    if (ea !== 0) return ea;
+    const da = a.direction.localeCompare(b.direction);
+    if (da !== 0) return da;
+    return a.target_path.localeCompare(b.target_path);
+  });
+
+  mappingTbody.innerHTML = rows.map(r=>{
+    const key = mappingKey(r);
+    return `
+      <tr>
+        <td><code>${escapeHtml(r.endpoint)}</code></td>
+        <td>${escapeHtml(r.http_method)}</td>
+        <td>${escapeHtml(r.direction)}</td>
+        <td><code>${escapeHtml(r.target_path)}</code></td>
+        <td>${escapeHtml(r.target_type)}</td>
+        <td>${escapeHtml(r.target_required)}</td>
+        <td>${escapeHtml(r.source_field || "")}</td>
+        <td>${escapeHtml(shorten(r.mapping_logic || "", 120))}</td>
+        <td>${escapeHtml(shorten(r.notes || "", 120))}</td>
+        <td>${escapeHtml(r.updated_at || "")}</td>
+        <td>
+          <div class="actions">
+            <button data-act="edit" data-key="${escapeHtml(key)}">Edit</button>
+            <button class="danger" data-act="del" data-key="${escapeHtml(key)}">Delete</button>
+            <button data-act="copy" data-key="${escapeHtml(key)}">Copy Path</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  mappingTbody.onclick = (e)=>{
+    const btn = e.target;
+    const act = btn?.dataset?.act;
+    const key = btn?.dataset?.key;
+    if (!act || !key) return;
+
+    const row = state.mappings.get(key);
+    if (!row) return;
+
+    if (act === "del"){
+      if (confirm(`Delete mapping for ${row.http_method} ${row.endpoint} :: ${row.target_path}?`)){
+        state.mappings.delete(key);
+        renderMappingsTable();
+        renderTree();
+      }
+    } else if (act === "edit"){
+      // move selectors to match row, then open editor
+      // find matching endpoint id
+      const epId = `${row.http_method} ${row.endpoint}`;
+      endpointSelect.value = epId;
+      state.selected.endpointId = epId;
+
+      directionSelect.value = row.direction;
+      state.selected.direction = row.direction;
+
+      // Rebuild schema choices (for correctness) then keep current schema selection
+      rebuildSchemaChoices();
+
+      // Find schema that contains this path is hard; keep current schema selection.
+      // Open editor directly for path:
+      openEditorForPath(row.target_path);
+    } else if (act === "copy"){
+      navigator.clipboard?.writeText(row.target_path);
+      btn.textContent = "Copied!";
+      setTimeout(()=>btn.textContent="Copy Path", 900);
+    }
+  };
+}
+
+function shorten(s, n){
+  s = String(s || "");
+  return s.length > n ? (s.slice(0, n-1) + "…") : s;
+}
+
+/* ----------------------------- Excel I/O ----------------------------- */
+
+function mappingsToSheetData(){
+  const rows = [...state.mappings.values()];
+  // Ensure all columns exist
+  return rows.map(r=>{
+    const obj = {};
+    for (const c of COLS) obj[c] = (r[c] != null ? r[c] : "");
+    return obj;
+  });
+}
+
+function exportExcel(filenameBase){
+  const data = mappingsToSheetData();
+
+  // Sheet 1: Mappings
+  const ws = XLSX.utils.json_to_sheet(data, { header: COLS });
+  // Add header row explicitly if empty
+  if (data.length === 0){
+    XLSX.utils.sheet_add_aoa(ws, [COLS], { origin: "A1" });
+  }
+
+  // Optional: Add another sheet with metadata
+  const meta = [
+    ["generated_at", nowIso()],
+    ["api_name", state.apiName],
+    ["row_count", String(state.mappings.size)],
+    ["notes", "Generated by OpenAPI → Mapping Excel Builder (single HTML)"]
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(meta);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Mappings");
+  XLSX.utils.book_append_sheet(wb, ws2, "Meta");
+
+  const fname = `${filenameBase}-${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+function readExcelFile(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onerror = ()=>reject(new Error("Failed to read Excel file."));
+    reader.onload = ()=>{
+      try{
+        const data = new Uint8Array(reader.result);
+        const wb = XLSX.read(data, { type:"array" });
+        resolve(wb);
+      }catch(err){ reject(err); }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function sheetToJsonRows(ws){
+  const rows = XLSX.utils.sheet_to_json(ws, { defval:"" });
+  return rows;
+}
+
+function normalizeLoadedRow(r){
+  // accept both exact column names and close variants
+  const pick = (k, alts=[])=>{
+    if (r[k] != null && r[k] !== "") return r[k];
+    for (const a of alts){
+      if (r[a] != null && r[a] !== "") return r[a];
+    }
+    return "";
+  };
+
+  const row = {
+    api_name: pick("api_name", ["api","service","service_name"]) || state.apiName,
+    endpoint: pick("endpoint", ["path","api_path"]),
+    http_method: (pick("http_method", ["method"]) || "").toUpperCase(),
+    direction: pick("direction", ["req_res","type"]) || "response",
+
+    target_path: pick("target_path", ["target","targetPath","field_path"]),
+    target_field: pick("target_field", ["field","targetField"]) || "",
+    target_type: pick("target_type", ["type","targetType"]) || "",
+    target_required: (pick("target_required", ["required"]) || "").toString().toUpperCase().startsWith("Y") ? "Y" : "N",
+
+    source_field: pick("source_field", ["source","sourceField"]) || "",
+    mapping_logic: pick("mapping_logic", ["logic","transform","transformation"]) || "",
+    notes: pick("notes", ["note"]) || "",
+    default_value: pick("default_value", ["default"]) || "",
+
+    version: pick("version", ["ver"]) || "1",
+    updated_by: pick("updated_by", ["user","author"]) || "user",
+    updated_at: pick("updated_at", ["updated","timestamp"]) || nowIso()
+  };
+
+  // Fill target_field if missing
+  if (!row.target_field && row.target_path) row.target_field = lastSegment(row.target_path);
+
+  return row;
+}
+
+async function loadExistingExcel(file){
+  const wb = await readExcelFile(file);
+  const ws = wb.Sheets["Mappings"] || wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error("No sheets found in Excel file.");
+
+  const json = sheetToJsonRows(ws);
+  let loaded = 0;
+
+  for (const r of json){
+    const row = normalizeLoadedRow(r);
+    if (!row.endpoint || !row.http_method || !row.direction || !row.target_path) continue;
+    const key = mappingKey(row);
+
+    // Merge strategy: loaded row goes in, but keep newer updated_at if our current one is newer
+    const existing = state.mappings.get(key);
+    if (!existing){
+      state.mappings.set(key, row);
+      loaded++;
+    } else {
+      // overwrite with loaded, unless existing updated_at is newer (best-effort)
+      const exT = Date.parse(existing.updated_at || "") || 0;
+      const inT = Date.parse(row.updated_at || "") || 0;
+      if (inT >= exT){
+        state.mappings.set(key, { ...existing, ...row });
+      }
+    }
+  }
+
+  state.loadedExcelName = file.name;
+  excelStatusText.textContent = `Loaded: ${file.name} (merged ${loaded} new rows)`;
+  renderMappingsTable();
+  renderTree();
+}
+
+/* ----------------------------- Event wiring ----------------------------- */
+
+openapiFile.addEventListener("change", async (e)=>{
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  openapiText.value = text;
+  setStatus("", `Loaded file: ${file.name}. Click “Parse OpenAPI”.`);
+  openapiFile.value = "";
+});
+
+parseBtn.addEventListener("click", ()=>{
+  try{
+    state.openapiRaw = openapiText.value;
+    const openapi = safeYamlOrJsonParse(state.openapiRaw);
+
+    // Basic checks
+    if (!openapi.openapi || !String(openapi.openapi).startsWith("3")){
+      // still allow but warn
+      setStatus("bad", "Parsed, but this does not look like OpenAPI 3.x (missing openapi: 3.x). Some features may not work.");
+    } else {
+      setStatus("good", `Parsed OpenAPI ${openapi.openapi}. Select an endpoint.`);
+    }
+
+    state.openapi = openapi;
+    state.apiName = openapi.info?.title ? String(openapi.info.title).trim().replace(/\s+/g,"-").toLowerCase() : "java-api";
+
+    state.endpoints = collectEndpoints(openapi);
+    renderEndpoints();
+
+    // enable selectors
+    enableUI(true);
+
+    // reset selections
+    state.selected.endpointId = "";
+    endpointSelect.value = "";
+    directionSelect.value = "response";
+    state.selected.direction = "response";
+
+    state.schemaChoices = [];
+    renderSchemas();
+    state.fields = [];
+    state.tree = null;
+    clearTree("Select endpoint and schema…");
+
+    clearEditor();
+  }catch(err){
+    console.error(err);
+    setStatus("bad", `Parse failed: ${err.message || err}`);
+    enableUI(false);
+    clearTree("Parse failed.");
+    clearEditor();
+  }
+});
+
+endpointSelect.addEventListener("change", ()=>{
+  state.selected.endpointId = endpointSelect.value;
+  rebuildSchemaChoices();
+  clearTree("Select a schema…");
+  clearEditor();
+});
+
+directionSelect.addEventListener("change", ()=>{
+  state.selected.direction = directionSelect.value;
+  rebuildSchemaChoices();
+  clearTree("Select a schema…");
+  clearEditor();
+});
+
+schemaSelect.addEventListener("change", ()=>{
+  state.selected.schemaId = schemaSelect.value;
+  loadSelectedSchemaFields();
+  clearEditor();
+});
+
+function rebuildSchemaChoices(){
+  const ep = state.endpoints.find(e=>e.id === state.selected.endpointId);
+  if (!ep){
+    state.schemaChoices = [];
+    renderSchemas();
+    schemaSelect.disabled = true;
+    schemaInfo.textContent = "—";
+    return;
+  }
+
+  schemaSelect.disabled = false;
+  const choices = getSchemaCandidatesForEndpoint(ep, state.selected.direction);
+  state.schemaChoices = choices;
+
+  renderSchemas();
+
+  // auto-select first schema if exists
+  if (choices.length){
+    schemaSelect.value = choices[0].id;
+    state.selected.schemaId = choices[0].id;
+    loadSelectedSchemaFields();
+  } else {
+    state.selected.schemaId = "";
+    state.fields = [];
+    state.tree = null;
+    clearTree("No schema found for this endpoint/direction (try different direction or check content types).");
+    schemaInfo.textContent = "—";
+  }
+}
+
+function loadSelectedSchemaFields(){
+  const ep = state.endpoints.find(e=>e.id === state.selected.endpointId);
+  const sc = state.schemaChoices.find(s=>s.id === state.selected.schemaId);
+  if (!ep || !sc) return;
+
+  // Resolve schema root if ref
+  let rootSchema = sc.schema;
+  if (rootSchema?.$ref){
+    const resolved = resolveRef(state.openapi, rootSchema.$ref);
+    if (resolved) rootSchema = resolved;
+  }
+
+  // Build field list
+  const fields = buildFieldList(state.openapi, rootSchema);
+  state.fields = fields;
+  state.tree = buildTree(fields);
+
+  // default expand first level
+  state.tree.children.forEach(n=>n.expanded = false);
+
+  schemaInfo.textContent = `${sc.name} • ${state.selected.direction} • ${fields.length} fields`;
+  renderTree();
+}
+
+fieldSearch.addEventListener("input", ()=>renderTree());
+filterSelect.addEventListener("change", ()=>renderTree());
+
+expandAllBtn.addEventListener("click", ()=>expandCollapseAll(true));
+collapseAllBtn.addEventListener("click", ()=>expandCollapseAll(false));
+
+saveMappingBtn.addEventListener("click", saveMapping);
+clearEditorBtn.addEventListener("click", ()=>{
+  const currentPath = targetPath.value;
+  clearEditor();
+  // keep it user-friendly: if a path was selected, re-open editor to continue quickly
+  if (currentPath){
+    openEditorForPath(currentPath);
+  }
+});
+deleteMappingBtn.addEventListener("click", ()=>{
+  if (confirm("Delete mapping for this target field (if exists)?")) deleteMapping();
+});
+
+exportBtn.addEventListener("click", ()=>{
+  exportExcel(`${state.apiName}-mappings-new`);
+});
+
+excelFile.addEventListener("change", async (e)=>{
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try{
+    await loadExistingExcel(file);
+  }catch(err){
+    alert("Failed to load Excel: " + (err.message || err));
+  }finally{
+    excelFile.value = "";
+  }
+});
+
+saveUpdatesBtn.addEventListener("click", ()=>{
+  const base = state.loadedExcelName
+    ? state.loadedExcelName.replace(/\.xlsx$/i,"") + "-updated"
+    : `${state.apiName}-mappings-updated`;
+  exportExcel(base);
+  excelStatusText.textContent = state.loadedExcelName ? `Updated export created from: ${state.loadedExcelName}` : "Exported updated Excel";
+});
+
+/* ----------------------------- Sample OpenAPI ----------------------------- */
+
+loadSampleBtn.addEventListener("click", ()=>{
+  openapiText.value = SAMPLE_OPENAPI_YAML;
+  setStatus("", "Loaded sample OpenAPI. Click “Parse OpenAPI”.");
+});
+
+const SAMPLE_OPENAPI_YAML = `openapi: 3.0.3
+info:
+  title: Claims Java API
+  version: 1.0.0
+paths:
+  /claims/{claimId}:
+    get:
+      summary: Get claim
+      parameters:
+        - in: path
+          name: claimId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimResponse"
+  /claims:
+    post:
+      summary: Create claim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClaimRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimResponse"
+components:
+  schemas:
+    CreateClaimRequest:
+      type: object
+      required: [member, items]
+      properties:
+        member:
+          $ref: "#/components/schemas/Member"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimItem"
+        notes:
+          type: string
+          description: Request note from client
+    ClaimResponse:
+      type: object
+      required: [claimId, status, member]
+      properties:
+        claimId:
+          type: string
+        status:
+          type: string
+          description: claim status
+        member:
+          $ref: "#/components/schemas/Member"
+        totals:
+          $ref: "#/components/schemas/Totals"
+    Member:
+      type: object
+      required: [memberId, address]
+      properties:
+        memberId:
+          type: string
+        name:
+          type: string
+        address:
+          $ref: "#/components/schemas/Address"
+    Address:
+      type: object
+      required: [zip]
+      properties:
+        line1:
+          type: string
+        city:
+          type: string
+        zip:
+          type: string
+          description: 5-digit ZIP code
+    ClaimItem:
+      type: object
+      required: [code, amount]
+      properties:
+        code:
+          type: string
+        amount:
+          type: number
+        meta:
+          type: object
+          properties:
+            tags:
+              type: array
+              items:
+                type: string
+    Totals:
+      allOf:
+        - type: object
+          properties:
+            billed:
+              type: number
+        - type: object
+          required: [allowed]
+          properties:
+            allowed:
+              type: number
+`;
+
+/* ----------------------------- Init ----------------------------- */
+(function init(){
+  enableUI(false);
+  clearEditor();
+  clearTree("Paste or upload OpenAPI, then click Parse.");
+  setStatus("", "Waiting for OpenAPI spec…");
+  renderMappingsTable();
+})();
+</script>
+</body>
+</html>
